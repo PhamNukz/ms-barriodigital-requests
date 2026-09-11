@@ -4,7 +4,10 @@ import cl.duoc.barriodigital.requests.client.CatalogClient;
 import cl.duoc.barriodigital.requests.domain.EstadoTramite;
 import cl.duoc.barriodigital.requests.domain.Tramite;
 import cl.duoc.barriodigital.requests.repo.TramiteRepository;
+import cl.duoc.barriodigital.requests.service.event.TramiteCreadoEvent;
+import cl.duoc.barriodigital.requests.service.event.TramiteEstadoCambiadoEvent;
 import cl.duoc.barriodigital.requests.web.TramiteDtos.CrearRequest;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,10 +22,12 @@ public class TramiteService {
 
     private final TramiteRepository repo;
     private final CatalogClient catalogClient;
+    private final ApplicationEventPublisher events;
 
-    public TramiteService(TramiteRepository repo, CatalogClient catalogClient) {
+    public TramiteService(TramiteRepository repo, CatalogClient catalogClient, ApplicationEventPublisher events) {
         this.repo = repo;
         this.catalogClient = catalogClient;
+        this.events = events;
     }
 
     @Transactional(readOnly = true)
@@ -48,7 +53,9 @@ public class TramiteService {
 
     @Transactional
     public Tramite crear(CrearRequest req, String vecinoUsername) {
-        return repo.save(new Tramite(req.tipoId(), vecinoUsername, req.descripcion(), req.direccion()));
+        Tramite tramite = repo.save(new Tramite(req.tipoId(), vecinoUsername, req.descripcion(), req.direccion()));
+        events.publishEvent(new TramiteCreadoEvent(tramite));
+        return tramite;
     }
 
     @Transactional
@@ -57,8 +64,9 @@ public class TramiteService {
         if (nuevo == EstadoTramite.ADMITIDO) {
             verificarCupoDisponible(tramite.getTipoId(), bearer);
         }
+        EstadoTramite anterior = tramite.getEstado();
         tramite.cambiarEstado(nuevo, funcionario);
-        // TODO fase 2: publicar evento en RabbitMQ (email al vecino, ticket a la cuadrilla)
+        events.publishEvent(new TramiteEstadoCambiadoEvent(tramite, anterior, funcionario));
         return tramite;
     }
 

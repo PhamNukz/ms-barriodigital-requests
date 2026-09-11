@@ -1,5 +1,7 @@
 package cl.duoc.barriodigital.requests;
 
+import cl.duoc.barriodigital.requests.amqp.NotificationPublisher;
+import cl.duoc.barriodigital.requests.kafka.RequestsEventPublisher;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -24,6 +26,13 @@ class RequestsApiSecurityTest {
 
     @MockBean
     JwtDecoder jwtDecoder;
+
+    // Evitan que el @TransactionalEventListener (AFTER_COMMIT) intente conectar
+    // a un RabbitMQ/Kafka real al crear un tramite en estos tests de HTTP/seguridad.
+    @MockBean
+    NotificationPublisher notificationPublisher;
+    @MockBean
+    RequestsEventPublisher requestsEventPublisher;
 
     @Test
     void listar_sin_token_401() throws Exception {
