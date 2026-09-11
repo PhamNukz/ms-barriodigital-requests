@@ -35,7 +35,9 @@ barriodigital:
   security:
     issuer-uri: ${AAD_ISSUER_URI:https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000/v2.0}
     audiences:
-      - ${AAD_API_CLIENT_ID:api://00000000-0000-0000-0000-000000000000}
+      # tokens v2.0 traen aud = GUID; v1.0 traen aud = api://GUID. Aceptar ambos.
+      - ${AAD_API_CLIENT_ID:00000000-0000-0000-0000-000000000000}
+      - api://${AAD_API_CLIENT_ID:00000000-0000-0000-0000-000000000000}
     required-scope: ${AAD_REQUIRED_SCOPE:access_as_user}
 
 management:
