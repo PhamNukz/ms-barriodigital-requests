@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: ms-barriodigital-requests
+  mvc:
+    problemdetails:
+      enabled: true
   datasource:
     url: jdbc:oracle:thin:@//${DB_HOST:localhost}:${DB_PORT:1521}/${DB_SERVICE:XEPDB1}
     username: ${DB_USER:barriodigital_requests}
