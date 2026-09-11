@@ -1,0 +1,22 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:requests;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate.dialect: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
+
+barriodigital:
+  catalog:
+    base-url: http://localhost:9999
+  security:
+    issuer-uri: https://login.microsoftonline.com/test-tenant/v2.0
+    audiences:
+      - api://test-api
+    required-scope: access_as_user
