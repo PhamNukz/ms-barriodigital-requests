@@ -7,13 +7,13 @@ import cl.duoc.barriodigital.requests.repo.TramiteRepository;
 import cl.duoc.barriodigital.requests.service.event.TramiteCreadoEvent;
 import cl.duoc.barriodigital.requests.service.event.TramiteEstadoCambiadoEvent;
 import cl.duoc.barriodigital.requests.web.TramiteDtos.CrearRequest;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.NoSuchElementException;
 
@@ -23,11 +23,15 @@ public class TramiteService {
     private final TramiteRepository repo;
     private final CatalogClient catalogClient;
     private final ApplicationEventPublisher events;
+    /** Zona con la que se define "hoy" para el cupo diario (dia civil local, no UTC). */
+    private final ZoneId zona;
 
-    public TramiteService(TramiteRepository repo, CatalogClient catalogClient, ApplicationEventPublisher events) {
+    public TramiteService(TramiteRepository repo, CatalogClient catalogClient, ApplicationEventPublisher events,
+                          @Value("${barriodigital.zona-horaria:America/Santiago}") String zonaHoraria) {
         this.repo = repo;
         this.catalogClient = catalogClient;
         this.events = events;
+        this.zona = ZoneId.of(zonaHoraria);
     }
 
     @Transactional(readOnly = true)
@@ -91,7 +95,19 @@ public class TramiteService {
     }
 
     private long admitidosHoy(Long tipoId) {
-        Instant inicioHoy = LocalDate.now(ZoneOffset.UTC).atStartOfDay(ZoneOffset.UTC).toInstant();
-        return repo.countByTipoIdAndFechaAdmisionBetween(tipoId, inicioHoy, Instant.now());
+        Instant ahora = Instant.now();
+        return repo.countByTipoIdAndFechaAdmisionBetween(tipoId, inicioDelDiaLocal(zona, ahora), ahora);
+    }
+
+    /**
+     * Comienzo del dia civil local (no del dia UTC).
+     *
+     * <p>Antes se contaba sobre el dia UTC, asi que el cupo diario se reiniciaba a
+     * las 21:00 de Chile y las admisiones de la noche anterior se descontaban del
+     * cupo del dia siguiente. Paso en produccion: dos tramites admitidos a las
+     * 22:10 del 11-sep (01:10 UTC del 12) dejaron sin cupo el 12-sep.
+     */
+    static Instant inicioDelDiaLocal(ZoneId zona, Instant ahora) {
+        return ahora.atZone(zona).toLocalDate().atStartOfDay(zona).toInstant();
     }
 }

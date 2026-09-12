@@ -44,6 +44,10 @@ spring:
         delivery.timeout.ms: 10000
 
 barriodigital:
+  # Define "hoy" para el cupo diario. Debe ser la zona civil del municipio: con
+  # UTC, el cupo se reiniciaba a las 21:00 de Chile y las admisiones de la noche
+  # anterior descontaban del cupo del dia siguiente.
+  zona-horaria: ${ZONA_HORARIA:America/Santiago}
   catalog:
     base-url: ${MS_CATALOG_URL:http://localhost:8082}
   security:
