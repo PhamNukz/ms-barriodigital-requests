@@ -51,6 +51,18 @@ public class TramiteService {
         return repo.findById(id).orElseThrow(() -> new NoSuchElementException("Tramite " + id + " no existe"));
     }
 
+    public record CupoInfo(int cupoDiario, long admitidosHoy, long disponible) {
+    }
+
+    /** Cupo del dia para un tipo de tramite -- lo consulta el vecino antes de ingresar uno nuevo. */
+    @Transactional(readOnly = true)
+    public CupoInfo cupoDeHoy(Long tipoId, String bearer) {
+        CatalogClient.TipoTramiteView tipo = catalogClient.obtenerTipo(tipoId, bearer);
+        long admitidosHoy = admitidosHoy(tipoId);
+        long disponible = Math.max(0, tipo.cupoDiario() - admitidosHoy);
+        return new CupoInfo(tipo.cupoDiario(), admitidosHoy, disponible);
+    }
+
     @Transactional
     public Tramite crear(CrearRequest req, String vecinoUsername) {
         Tramite tramite = repo.save(new Tramite(req.tipoId(), vecinoUsername, req.descripcion(), req.direccion()));
@@ -72,11 +84,14 @@ public class TramiteService {
 
     private void verificarCupoDisponible(Long tipoId, String bearer) {
         CatalogClient.TipoTramiteView tipo = catalogClient.obtenerTipo(tipoId, bearer);
-        Instant inicioHoy = LocalDate.now(ZoneOffset.UTC).atStartOfDay(ZoneOffset.UTC).toInstant();
-        long admitidosHoy = repo.countByTipoIdAndFechaAdmisionBetween(tipoId, inicioHoy, Instant.now());
-        if (admitidosHoy >= tipo.cupoDiario()) {
+        if (admitidosHoy(tipoId) >= tipo.cupoDiario()) {
             throw new CupoExcedidoException(
                     "Cupo diario agotado para " + tipo.nombre() + " (" + tipo.cupoDiario() + "/dia)");
         }
+    }
+
+    private long admitidosHoy(Long tipoId) {
+        Instant inicioHoy = LocalDate.now(ZoneOffset.UTC).atStartOfDay(ZoneOffset.UTC).toInstant();
+        return repo.countByTipoIdAndFechaAdmisionBetween(tipoId, inicioHoy, Instant.now());
     }
 }

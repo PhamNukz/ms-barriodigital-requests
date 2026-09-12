@@ -38,6 +38,11 @@ public class TramiteController {
                 .stream().map(Response::from).toList();
     }
 
+    @GetMapping("/tipos/{tipoId}/cupo")
+    public TramiteService.CupoInfo cupoDeHoy(@PathVariable Long tipoId, @AuthenticationPrincipal Jwt jwt) {
+        return service.cupoDeHoy(tipoId, jwt.getTokenValue());
+    }
+
     @GetMapping("/{id}")
     public Response obtener(@PathVariable Long id, Authentication auth, @AuthenticationPrincipal Jwt jwt) {
         var tramite = service.obtener(id);
