@@ -82,6 +82,38 @@ class TramiteEventRelayTest {
         verify(notif).generarCertificado(1L, "certificado de resolucion");
     }
 
+    /**
+     * Regresion: con los brokers caidos el publish explotaba y, al correr inline
+     * en el hilo del request (AFTER_COMMIT), convertia en error una operacion
+     * que en la BD ya estaba commiteada. Ahora se registra y se sigue.
+     */
+    @Test
+    void si_kafka_falla_no_rompe_la_operacion() {
+        NotificationPublisher notif = mock(NotificationPublisher.class);
+        RequestsEventPublisher events = mock(RequestsEventPublisher.class);
+        doThrow(new IllegalStateException("kafka caido")).when(events).publicar(any(), any(), any());
+        var relay = new TramiteEventRelay(notif, events);
+
+        Tramite t = tramiteEn(EstadoTramite.ADMITIDO);
+        // no lanza: si lanzara, este test falla
+        relay.alCambiarEstado(new TramiteEstadoCambiadoEvent(t, EstadoTramite.INGRESADO, "func1"));
+    }
+
+    @Test
+    void si_rabbitmq_falla_no_rompe_la_creacion() {
+        NotificationPublisher notif = mock(NotificationPublisher.class);
+        RequestsEventPublisher events = mock(RequestsEventPublisher.class);
+        doThrow(new IllegalStateException("rabbit caido")).when(notif).generarCertificado(anyLong(), any());
+        var relay = new TramiteEventRelay(notif, events);
+
+        Tramite t = new Tramite(9L, "vecino1", "Bache", "Calle Falsa 123");
+        fijarId(t, 1L);
+        relay.alCrear(new TramiteCreadoEvent(t));
+
+        // el evento a Kafka igual se intento antes de que fallara la notificacion
+        verify(events).publicar(eq(t), isNull(), eq("vecino1"));
+    }
+
     @Test
     void al_crear_genera_comprobante_de_ingreso() {
         NotificationPublisher notif = mock(NotificationPublisher.class);
