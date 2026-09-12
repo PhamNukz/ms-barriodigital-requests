@@ -44,16 +44,6 @@ public class TramiteController {
         return service.cuposDeHoy(jwt.getTokenValue());
     }
 
-    @GetMapping("/{id}")
-    public Response obtener(@PathVariable Long id, Authentication auth, @AuthenticationPrincipal Jwt jwt) {
-        var tramite = service.obtener(id);
-        boolean puedeVerTodos = tieneRol(auth, "Admin") || tieneRol(auth, "Funcionario");
-        if (!puedeVerTodos && !tramite.getVecinoUsername().equals(jwt.getClaimAsString("preferred_username"))) {
-            throw new org.springframework.security.access.AccessDeniedException("No puedes ver el tramite de otro vecino");
-        }
-        return Response.from(tramite);
-    }
-
     /** Un vecino ingresa su propio tramite; un funcionario tambien puede ingresarlo por el. */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)

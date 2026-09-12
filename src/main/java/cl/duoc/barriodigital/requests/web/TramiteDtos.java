@@ -23,12 +23,12 @@ public final class TramiteDtos {
 
     public record Response(
             Long id, Long tipoId, String vecinoUsername, String descripcion, String direccion,
-            EstadoTramite estado, String funcionarioAsignado, String cuadrillaAsignada,
+            EstadoTramite estado, String funcionarioAsignado,
             Instant fechaIngreso, Instant fechaAdmision, Instant fechaResolucion) {
 
         public static Response from(Tramite t) {
             return new Response(t.getId(), t.getTipoId(), t.getVecinoUsername(), t.getDescripcion(),
-                    t.getDireccion(), t.getEstado(), t.getFuncionarioAsignado(), t.getCuadrillaAsignada(),
+                    t.getDireccion(), t.getEstado(), t.getFuncionarioAsignado(),
                     t.getFechaIngreso(), t.getFechaAdmision(), t.getFechaResolucion());
         }
     }
