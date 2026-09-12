@@ -32,9 +32,17 @@ public class TramiteController {
                                   @AuthenticationPrincipal Jwt jwt,
                                   @RequestParam(required = false) EstadoTramite estado,
                                   @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant desde,
-                                  @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant hasta) {
+                                  @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant hasta,
+                                  // El caso documenta el filtro como ?status=&from=&to=; se aceptan ambos
+                                  // nombres para que el contrato publicado funcione tal cual esta escrito.
+                                  @RequestParam(required = false) EstadoTramite status,
+                                  @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+                                  @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {
         boolean puedeVerTodos = tieneRol(auth, "Admin") || tieneRol(auth, "Funcionario");
-        return service.listar(jwt.getClaimAsString("preferred_username"), puedeVerTodos, estado, desde, hasta)
+        return service.listar(jwt.getClaimAsString("preferred_username"), puedeVerTodos,
+                        estado != null ? estado : status,
+                        desde != null ? desde : from,
+                        hasta != null ? hasta : to)
                 .stream().map(Response::from).toList();
     }
 
@@ -42,6 +50,17 @@ public class TramiteController {
     @GetMapping("/cupos")
     public List<TramiteService.CupoInfo> cuposDeHoy(@AuthenticationPrincipal Jwt jwt) {
         return service.cuposDeHoy(jwt.getTokenValue());
+    }
+
+    /** Endpoint esencial del caso (seccion 5). Un vecino solo puede ver los suyos. */
+    @GetMapping("/{id}")
+    public Response obtener(@PathVariable Long id, Authentication auth, @AuthenticationPrincipal Jwt jwt) {
+        var tramite = service.obtener(id);
+        boolean puedeVerTodos = tieneRol(auth, "Admin") || tieneRol(auth, "Funcionario");
+        if (!puedeVerTodos && !tramite.getVecinoUsername().equals(jwt.getClaimAsString("preferred_username"))) {
+            throw new org.springframework.security.access.AccessDeniedException("No puedes ver el tramite de otro vecino");
+        }
+        return Response.from(tramite);
     }
 
     /** Un vecino ingresa su propio tramite; un funcionario tambien puede ingresarlo por el. */
