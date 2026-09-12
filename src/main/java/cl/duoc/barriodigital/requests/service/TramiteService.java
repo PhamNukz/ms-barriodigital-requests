@@ -9,6 +9,7 @@ import cl.duoc.barriodigital.requests.service.event.TramiteEstadoCambiadoEvent;
 import cl.duoc.barriodigital.requests.web.TramiteDtos.CrearRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,8 +38,11 @@ public class TramiteService {
     @Transactional(readOnly = true)
     public List<Tramite> listar(String username, boolean puedeVerTodos,
                                  EstadoTramite estado, Instant desde, Instant hasta) {
+        // findAll() sin Sort devolvia las filas en el orden que quisiera la base: a
+        // Admin/Funcionario la tabla le llegaba desordenada. El vecino ya venia
+        // ordenado por su propia query; ahora ambos caminos coinciden.
         List<Tramite> base = puedeVerTodos
-                ? repo.findAll()
+                ? repo.findAll(Sort.by(Sort.Direction.DESC, "fechaIngreso"))
                 : repo.findAllByVecinoUsernameOrderByFechaIngresoDesc(username);
 
         // ponytail: filtro en memoria; si el volumen de tramites crece, pasar a
