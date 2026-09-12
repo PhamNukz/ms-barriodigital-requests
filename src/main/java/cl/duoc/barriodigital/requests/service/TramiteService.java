@@ -63,12 +63,6 @@ public class TramiteService {
                            long disponible, Instant reinicia) {
     }
 
-    /** Cupo del dia para un tipo de tramite -- lo consulta el vecino antes de ingresar uno nuevo. */
-    @Transactional(readOnly = true)
-    public CupoInfo cupoDeHoy(Long tipoId, String bearer) {
-        return cupoDe(catalogClient.obtenerTipo(tipoId, bearer));
-    }
-
     /** Cupo del dia de todos los tipos, para mostrarlo en la tabla sin una llamada por fila. */
     @Transactional(readOnly = true)
     public List<CupoInfo> cuposDeHoy(String bearer) {

@@ -38,11 +38,6 @@ public class TramiteController {
                 .stream().map(Response::from).toList();
     }
 
-    @GetMapping("/tipos/{tipoId}/cupo")
-    public TramiteService.CupoInfo cupoDeHoy(@PathVariable Long tipoId, @AuthenticationPrincipal Jwt jwt) {
-        return service.cupoDeHoy(tipoId, jwt.getTokenValue());
-    }
-
     /** Cupo de todos los tipos: la tabla lo necesita por fila, en una sola llamada. */
     @GetMapping("/cupos")
     public List<TramiteService.CupoInfo> cuposDeHoy(@AuthenticationPrincipal Jwt jwt) {

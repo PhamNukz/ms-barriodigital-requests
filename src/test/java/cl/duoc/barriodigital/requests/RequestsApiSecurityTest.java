@@ -14,7 +14,6 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -76,8 +75,8 @@ class RequestsApiSecurityTest {
     }
 
     @Test
-    void cupo_sin_token_401() throws Exception {
-        mvc.perform(get("/requests/tipos/1/cupo")).andExpect(status().isUnauthorized());
+    void cupos_sin_token_401() throws Exception {
+        mvc.perform(get("/requests/cupos")).andExpect(status().isUnauthorized());
     }
 
     /**
@@ -95,18 +94,5 @@ class RequestsApiSecurityTest {
            .andExpect(jsonPath("$[0].nombre").value("Poda de arbol"))
            .andExpect(jsonPath("$[0].disponible").value(5))
            .andExpect(jsonPath("$[0].reinicia").exists());
-    }
-
-    @Test
-    void vecino_puede_ver_cupo_del_dia() throws Exception {
-        when(catalogClient.obtenerTipo(anyLong(), any()))
-                .thenReturn(new CatalogClient.TipoTramiteView(1L, "Poda de arbol", 5, true));
-
-        mvc.perform(get("/requests/tipos/1/cupo")
-                .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_Vecino"))))
-           .andExpect(status().isOk())
-           .andExpect(jsonPath("$.cupoDiario").value(5))
-           .andExpect(jsonPath("$.admitidosHoy").value(0))
-           .andExpect(jsonPath("$.disponible").value(5));
     }
 }
