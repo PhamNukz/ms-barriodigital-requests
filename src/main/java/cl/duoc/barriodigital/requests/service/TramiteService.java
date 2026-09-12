@@ -55,16 +55,31 @@ public class TramiteService {
         return repo.findById(id).orElseThrow(() -> new NoSuchElementException("Tramite " + id + " no existe"));
     }
 
-    public record CupoInfo(int cupoDiario, long admitidosHoy, long disponible) {
+    /**
+     * @param reinicia momento en que vuelve a haber cupo (medianoche local siguiente).
+     *                 Lo calcula el servidor porque es quien conoce la zona configurada.
+     */
+    public record CupoInfo(Long tipoId, String nombre, int cupoDiario, long admitidosHoy,
+                           long disponible, Instant reinicia) {
     }
 
     /** Cupo del dia para un tipo de tramite -- lo consulta el vecino antes de ingresar uno nuevo. */
     @Transactional(readOnly = true)
     public CupoInfo cupoDeHoy(Long tipoId, String bearer) {
-        CatalogClient.TipoTramiteView tipo = catalogClient.obtenerTipo(tipoId, bearer);
-        long admitidosHoy = admitidosHoy(tipoId);
+        return cupoDe(catalogClient.obtenerTipo(tipoId, bearer));
+    }
+
+    /** Cupo del dia de todos los tipos, para mostrarlo en la tabla sin una llamada por fila. */
+    @Transactional(readOnly = true)
+    public List<CupoInfo> cuposDeHoy(String bearer) {
+        return catalogClient.listarTipos(bearer).stream().map(this::cupoDe).toList();
+    }
+
+    private CupoInfo cupoDe(CatalogClient.TipoTramiteView tipo) {
+        long admitidosHoy = admitidosHoy(tipo.id());
         long disponible = Math.max(0, tipo.cupoDiario() - admitidosHoy);
-        return new CupoInfo(tipo.cupoDiario(), admitidosHoy, disponible);
+        return new CupoInfo(tipo.id(), tipo.nombre(), tipo.cupoDiario(), admitidosHoy, disponible,
+                inicioDelDiaSiguienteLocal(zona, Instant.now()));
     }
 
     @Transactional
@@ -109,5 +124,16 @@ public class TramiteService {
      */
     static Instant inicioDelDiaLocal(ZoneId zona, Instant ahora) {
         return ahora.atZone(zona).toLocalDate().atStartOfDay(zona).toInstant();
+    }
+
+    /**
+     * Momento en que se reinicia el cupo: medianoche local del dia siguiente.
+     *
+     * <p>Se calcula sumando un dia al LocalDate y no 24 horas al Instant: en los
+     * cambios de horario de verano el dia local dura 23 o 25 horas, y sumar 24h
+     * caeria en la hora equivocada.
+     */
+    static Instant inicioDelDiaSiguienteLocal(ZoneId zona, Instant ahora) {
+        return ahora.atZone(zona).toLocalDate().plusDays(1).atStartOfDay(zona).toInstant();
     }
 }

@@ -80,6 +80,23 @@ class RequestsApiSecurityTest {
         mvc.perform(get("/requests/tipos/1/cupo")).andExpect(status().isUnauthorized());
     }
 
+    /**
+     * /requests/cupos compite con /requests/{id}: si ganara la ruta con variable,
+     * "cupos" no parsearia como Long y devolveria 400 en vez de la lista.
+     */
+    @Test
+    void la_ruta_cupos_no_la_captura_el_id() throws Exception {
+        when(catalogClient.listarTipos(any()))
+                .thenReturn(java.util.List.of(new CatalogClient.TipoTramiteView(1L, "Poda de arbol", 5, true)));
+
+        mvc.perform(get("/requests/cupos")
+                .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_Funcionario"))))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$[0].nombre").value("Poda de arbol"))
+           .andExpect(jsonPath("$[0].disponible").value(5))
+           .andExpect(jsonPath("$[0].reinicia").exists());
+    }
+
     @Test
     void vecino_puede_ver_cupo_del_dia() throws Exception {
         when(catalogClient.obtenerTipo(anyLong(), any()))

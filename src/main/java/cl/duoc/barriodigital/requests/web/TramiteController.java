@@ -43,6 +43,12 @@ public class TramiteController {
         return service.cupoDeHoy(tipoId, jwt.getTokenValue());
     }
 
+    /** Cupo de todos los tipos: la tabla lo necesita por fila, en una sola llamada. */
+    @GetMapping("/cupos")
+    public List<TramiteService.CupoInfo> cuposDeHoy(@AuthenticationPrincipal Jwt jwt) {
+        return service.cuposDeHoy(jwt.getTokenValue());
+    }
+
     @GetMapping("/{id}")
     public Response obtener(@PathVariable Long id, Authentication auth, @AuthenticationPrincipal Jwt jwt) {
         var tramite = service.obtener(id);
