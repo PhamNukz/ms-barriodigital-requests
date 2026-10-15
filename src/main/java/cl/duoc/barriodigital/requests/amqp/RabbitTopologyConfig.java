@@ -4,6 +4,7 @@ import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -14,7 +15,14 @@ import org.springframework.context.annotation.Configuration;
  * antes o despues que el consumidor sin fallar al publicar.
  */
 @Configuration
+@EnableConfigurationProperties(RabbitProperties.class)
 public class RabbitTopologyConfig {
+
+    private final RabbitProperties p;
+
+    public RabbitTopologyConfig(RabbitProperties p) {
+        this.p = p;
+    }
 
     @Bean
     MessageConverter jsonMessageConverter() {
@@ -23,11 +31,11 @@ public class RabbitTopologyConfig {
 
     @Bean
     DirectExchange cmdDirectExchange() {
-        return new DirectExchange("cmd.direct", true, false);
+        return new DirectExchange(p.exchanges().direct(), true, false);
     }
 
     @Bean
     TopicExchange cmdTopicExchange() {
-        return new TopicExchange("cmd.topic", true, false);
+        return new TopicExchange(p.exchanges().topic(), true, false);
     }
 }

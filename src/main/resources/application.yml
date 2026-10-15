@@ -33,6 +33,28 @@ spring:
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
 
 barriodigital:
+  rabbitmq:
+    exchanges:
+      direct: cmd.direct
+      topic: cmd.topic
+      dead-letter: cmd.dead.dlx
+    colas:
+      email: q.cmd.email
+      email-dlq: q.cmd.email.dlq
+      crew: q.cmd.crew
+      crew-dlq: q.cmd.crew.dlq
+      certificate: q.cmd.certificate
+      certificate-dlq: q.cmd.certificate.dlq
+    routing-keys:
+      email-send: email.send
+      email-topic: "email.*"
+      email-dlq: email.dlq
+      crew-ticket: crew.ticket
+      crew-topic: "crew.#"
+      crew-dlq: crew.dlq
+      certificate-gen: certificate.gen
+      certificate-topic: "certificate.*"
+      certificate-dlq: certificate.dlq
   catalog:
     base-url: ${MS_CATALOG_URL:http://localhost:8082}
   security:

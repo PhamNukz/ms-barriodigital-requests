@@ -11,28 +11,28 @@ import java.util.UUID;
 @Component
 public class NotificationPublisher {
 
-    private static final String EXCHANGE = "cmd.direct";
-
     private final RabbitTemplate rabbit;
+    private final RabbitProperties props;
 
-    public NotificationPublisher(RabbitTemplate rabbit) {
+    public NotificationPublisher(RabbitTemplate rabbit, RabbitProperties props) {
         this.rabbit = rabbit;
+        this.props = props;
     }
 
     public void notificarEmail(Long tramiteId, String tipoNotificacion) {
-        publicar("email.send", "email.send", Map.of(
+        publicar("email.send", props.routingKeys().emailSend(), Map.of(
                 "tramiteId", tramiteId,
                 "tipoNotificacion", tipoNotificacion));
     }
 
     public void notificarCuadrilla(Long tramiteId, String direccion) {
-        publicar("crew.ticket", "crew.ticket", Map.of(
+        publicar("crew.ticket", props.routingKeys().crewTicket(), Map.of(
                 "tramiteId", tramiteId,
                 "direccion", direccion == null ? "" : direccion));
     }
 
     public void generarCertificado(Long tramiteId, String motivo) {
-        publicar("certificate.gen", "certificate.gen", Map.of(
+        publicar("certificate.gen", props.routingKeys().certificateGen(), Map.of(
                 "tramiteId", tramiteId,
                 "motivo", motivo));
     }
@@ -42,6 +42,6 @@ public class NotificationPublisher {
         var envelope = new CommandEnvelope(
                 tipo, UUID.randomUUID().toString(), Instant.now(),
                 UUID.randomUUID().toString(), tramiteId, data);
-        rabbit.convertAndSend(EXCHANGE, routingKey, envelope);
+        rabbit.convertAndSend(props.exchanges().direct(), routingKey, envelope);
     }
 }
