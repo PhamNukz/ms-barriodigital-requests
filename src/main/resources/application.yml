@@ -26,11 +26,22 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USER:guest}
     password: ${RABBITMQ_PASSWORD:guest}
+    # Falla rapido si el broker no esta: sin esto un RabbitMQ caido deja el
+    # hilo de publicacion esperando el timeout por defecto del sistema.
+    connection-timeout: 5s
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        # Por defecto max.block.ms son 60s: con los brokers caidos, send()
+        # bloqueaba un minuto esperando metadata. Acotado, un broker caido
+        # degrada la publicacion en segundos en vez de retener el hilo.
+        max.block.ms: 5000
+        request.timeout.ms: 5000
+        # delivery.timeout.ms debe ser >= linger.ms + request.timeout.ms
+        delivery.timeout.ms: 10000
 
 barriodigital:
   rabbitmq:
@@ -55,6 +66,10 @@ barriodigital:
       certificate-gen: certificate.gen
       certificate-topic: "certificate.*"
       certificate-dlq: certificate.dlq
+  # Define "hoy" para el cupo diario. Debe ser la zona civil del municipio: con
+  # UTC, el cupo se reiniciaba a las 21:00 de Chile y las admisiones de la noche
+  # anterior descontaban del cupo del dia siguiente.
+  zona-horaria: ${ZONA_HORARIA:America/Santiago}
   catalog:
     base-url: ${MS_CATALOG_URL:http://localhost:8082}
   security:

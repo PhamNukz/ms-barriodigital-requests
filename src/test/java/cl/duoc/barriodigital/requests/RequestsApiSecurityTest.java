@@ -1,6 +1,7 @@
 package cl.duoc.barriodigital.requests;
 
 import cl.duoc.barriodigital.requests.amqp.NotificationPublisher;
+import cl.duoc.barriodigital.requests.client.CatalogClient;
 import cl.duoc.barriodigital.requests.kafka.RequestsEventPublisher;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,8 +13,11 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -33,6 +37,9 @@ class RequestsApiSecurityTest {
     NotificationPublisher notificationPublisher;
     @MockBean
     RequestsEventPublisher requestsEventPublisher;
+
+    @MockBean
+    CatalogClient catalogClient;
 
     @Test
     void listar_sin_token_401() throws Exception {
@@ -65,5 +72,27 @@ class RequestsApiSecurityTest {
                 .content("{\"status\":\"ADMITIDO\"}")
                 .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_Vecino"))))
            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void cupos_sin_token_401() throws Exception {
+        mvc.perform(get("/requests/cupos")).andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * /requests/cupos compite con /requests/{id}: si ganara la ruta con variable,
+     * "cupos" no parsearia como Long y devolveria 400 en vez de la lista.
+     */
+    @Test
+    void la_ruta_cupos_no_la_captura_el_id() throws Exception {
+        when(catalogClient.listarTipos(any()))
+                .thenReturn(java.util.List.of(new CatalogClient.TipoTramiteView(1L, "Poda de arbol", 5, true)));
+
+        mvc.perform(get("/requests/cupos")
+                .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_Funcionario"))))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$[0].nombre").value("Poda de arbol"))
+           .andExpect(jsonPath("$[0].disponible").value(5))
+           .andExpect(jsonPath("$[0].reinicia").exists());
     }
 }

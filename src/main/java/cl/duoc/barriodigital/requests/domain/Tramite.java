@@ -30,9 +30,6 @@ public class Tramite {
     @Column(name = "funcionario_asignado", length = 150)
     private String funcionarioAsignado;
 
-    @Column(name = "cuadrilla_asignada", length = 150)
-    private String cuadrillaAsignada;
-
     @Column(name = "fecha_ingreso", nullable = false, updatable = false)
     private Instant fechaIngreso = Instant.now();
 
@@ -70,7 +67,6 @@ public class Tramite {
     public String getDireccion() { return direccion; }
     public EstadoTramite getEstado() { return estado; }
     public String getFuncionarioAsignado() { return funcionarioAsignado; }
-    public String getCuadrillaAsignada() { return cuadrillaAsignada; }
     public Instant getFechaIngreso() { return fechaIngreso; }
     public Instant getFechaAdmision() { return fechaAdmision; }
     public Instant getFechaResolucion() { return fechaResolucion; }
