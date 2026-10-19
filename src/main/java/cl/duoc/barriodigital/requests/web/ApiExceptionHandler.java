@@ -21,6 +21,12 @@ public class ApiExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
     }
 
+    /** Pedido valido en forma pero imposible (p. ej. fecha estimada sobre un paso ya cumplido). */
+    @ExceptionHandler(IllegalArgumentException.class)
+    ProblemDetail pedidoInvalido(IllegalArgumentException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
     @ExceptionHandler(CupoExcedidoException.class)
     ProblemDetail cupoExcedido(CupoExcedidoException ex) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
