@@ -4,7 +4,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Nombres de la topologia AMQP, unica fuente: application.yml (barriodigital.rabbitmq.*).
- * Copia identica en notify y requests, igual que el paquete security.
+ * Copia de la de notify, mas las dos routing keys que solo publica este servicio por
+ * cmd.topic (emailResuelto, crewVisitaAgendada); notify no las necesita.
  */
 @ConfigurationProperties("barriodigital.rabbitmq")
 public record RabbitProperties(Exchanges exchanges, Colas colas, RoutingKeys routingKeys) {
@@ -17,5 +18,6 @@ public record RabbitProperties(Exchanges exchanges, Colas colas, RoutingKeys rou
 
     public record RoutingKeys(String emailSend, String emailTopic, String emailDlq,
                               String crewTicket, String crewTopic, String crewDlq,
-                              String certificateGen, String certificateTopic, String certificateDlq) {}
+                              String certificateGen, String certificateTopic, String certificateDlq,
+                              String emailResuelto, String crewVisitaAgendada) {}
 }
