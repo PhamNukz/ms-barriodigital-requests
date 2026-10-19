@@ -16,8 +16,9 @@ import java.util.UUID;
  *       crew.visita.agendada). Le llega a cualquier cola cuyo patron calce (email.*, crew.#) sin que
  *       este productor sepa cuales son: sumar un consumidor no toca esta clase.</li>
  * </ul>
- * El {@code type} del envelope es el tipo de comando y no depende del exchange: notify procesa igual
- * un email.send venga por donde venga.
+ * El {@code type} del envelope es el tipo de comando, y se toma de la routing key canonica del comando
+ * (la de cmd.direct) para no repetir el nombre en el codigo. No depende del exchange: notify procesa
+ * igual un email.send venga por donde venga. Todos los nombres salen de {@link RabbitProperties}.
  */
 @Component
 public class NotificationPublisher {
@@ -31,33 +32,33 @@ public class NotificationPublisher {
     }
 
     public void notificarEmail(Long tramiteId, String tipoNotificacion) {
-        publicar(props.exchanges().direct(), "email.send", props.routingKeys().emailSend(), Map.of(
+        publicar(props.exchanges().direct(), props.routingKeys().emailSend(), props.routingKeys().emailSend(), Map.of(
                 "tramiteId", tramiteId,
                 "tipoNotificacion", tipoNotificacion));
     }
 
     public void notificarCuadrilla(Long tramiteId, String direccion) {
-        publicar(props.exchanges().direct(), "crew.ticket", props.routingKeys().crewTicket(), Map.of(
+        publicar(props.exchanges().direct(), props.routingKeys().crewTicket(), props.routingKeys().crewTicket(), Map.of(
                 "tramiteId", tramiteId,
                 "direccion", direccion == null ? "" : direccion));
     }
 
     public void generarCertificado(Long tramiteId, String motivo) {
-        publicar(props.exchanges().direct(), "certificate.gen", props.routingKeys().certificateGen(), Map.of(
+        publicar(props.exchanges().direct(), props.routingKeys().certificateGen(), props.routingKeys().certificateGen(), Map.of(
                 "tramiteId", tramiteId,
                 "motivo", motivo));
     }
 
     /** Difunde por cmd.topic que el tramite quedo resuelto (cae en email.*). */
     public void difundirResuelto(Long tramiteId) {
-        publicar(props.exchanges().topic(), "email.send", props.routingKeys().emailResuelto(), Map.of(
+        publicar(props.exchanges().topic(), props.routingKeys().emailSend(), props.routingKeys().emailResuelto(), Map.of(
                 "tramiteId", tramiteId,
                 "tipoNotificacion", "RESUELTO"));
     }
 
     /** Difunde por cmd.topic que se agendo la visita en terreno (cae en crew.#). */
     public void difundirVisitaAgendada(Long tramiteId, String direccion) {
-        publicar(props.exchanges().topic(), "crew.ticket", props.routingKeys().crewVisitaAgendada(), Map.of(
+        publicar(props.exchanges().topic(), props.routingKeys().crewTicket(), props.routingKeys().crewVisitaAgendada(), Map.of(
                 "tramiteId", tramiteId,
                 "direccion", direccion == null ? "" : direccion));
     }
