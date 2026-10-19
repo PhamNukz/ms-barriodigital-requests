@@ -53,7 +53,10 @@ public class TramiteEventRelay {
     public void alCrear(TramiteCreadoEvent evt) {
         Tramite t = evt.tramite();
         publicarSinRomper("tramite creado " + t.getId(), () -> {
-            events.publicar(t, null, t.getVecinoUsername());
+            String nota = t.getCreadoPor() != null
+                    ? "Ingresado por " + t.getCreadoPor() + " a nombre de " + t.getVecinoUsername()
+                    : null;
+            events.publicar(t, null, evt.usuario(), nota);
             notifications.generarCertificado(t.getId(), "comprobante de ingreso");
         });
     }
@@ -63,7 +66,7 @@ public class TramiteEventRelay {
     public void alCambiarEstado(TramiteEstadoCambiadoEvent evt) {
         Tramite t = evt.tramite();
         publicarSinRomper("tramite " + t.getId() + " -> " + t.getEstado(), () -> {
-            events.publicar(t, evt.estadoAnterior().name(), evt.usuario());
+            events.publicar(t, evt.estadoAnterior().name(), evt.usuario(), evt.nota());
 
             switch (t.getEstado()) {
                 case ADMITIDO -> notifications.notificarEmail(t.getId(), "ADMITIDO");

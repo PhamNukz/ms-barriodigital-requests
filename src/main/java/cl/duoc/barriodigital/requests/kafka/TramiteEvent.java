@@ -17,5 +17,7 @@ public record TramiteEvent(
         String vecinoUsername,
         String estadoAnterior,
         String estadoNuevo,
-        String usuario) {
+        String usuario,
+        // opcional: la nota del funcionario, o "a nombre de" si un funcionario lo ingreso
+        String nota) {
 }

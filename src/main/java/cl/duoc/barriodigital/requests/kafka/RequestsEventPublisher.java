@@ -18,7 +18,11 @@ public class RequestsEventPublisher {
         this.kafka = kafka;
     }
 
-    public void publicar(Tramite tramite, String estadoAnterior, String usuario) {
+    /**
+     * @param usuario quien hizo el cambio (el actor); el vecino afectado va aparte, en vecinoUsername.
+     *                Si al crear no coinciden, es un funcionario que lo ingreso a nombre del vecino.
+     */
+    public void publicar(Tramite tramite, String estadoAnterior, String usuario, String nota) {
         var evento = new TramiteEvent(
                 UUID.randomUUID().toString(),
                 Instant.now(),
@@ -28,7 +32,8 @@ public class RequestsEventPublisher {
                 tramite.getVecinoUsername(),
                 estadoAnterior,
                 tramite.getEstado().name(),
-                usuario);
+                usuario,
+                nota);
         // key = tramiteId: todos los eventos de un mismo tramite van a la misma
         // particion y llegan en orden a audit/report.
         kafka.send(TOPIC, String.valueOf(tramite.getId()), evento);

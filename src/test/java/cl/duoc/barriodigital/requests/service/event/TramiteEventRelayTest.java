@@ -53,7 +53,7 @@ class TramiteEventRelayTest {
 
         verify(notif).notificarEmail(eq(1L), eq("ADMITIDO"));
         verify(notif, never()).notificarCuadrilla(anyLong(), any());
-        verify(events).publicar(eq(t), eq("INGRESADO"), eq("func1"));
+        verify(events).publicar(eq(t), eq("INGRESADO"), eq("func1"), isNull());
     }
 
     @Test
@@ -93,7 +93,7 @@ class TramiteEventRelayTest {
     void si_kafka_falla_no_rompe_la_operacion() {
         NotificationPublisher notif = mock(NotificationPublisher.class);
         RequestsEventPublisher events = mock(RequestsEventPublisher.class);
-        doThrow(new IllegalStateException("kafka caido")).when(events).publicar(any(), any(), any());
+        doThrow(new IllegalStateException("kafka caido")).when(events).publicar(any(), any(), any(), any());
         var relay = new TramiteEventRelay(notif, events);
 
         Tramite t = tramiteEn(EstadoTramite.ADMITIDO);
@@ -110,10 +110,10 @@ class TramiteEventRelayTest {
 
         Tramite t = new Tramite(9L, "vecino1", "Bache", "Calle Falsa 123");
         fijarId(t, 1L);
-        relay.alCrear(new TramiteCreadoEvent(t));
+        relay.alCrear(new TramiteCreadoEvent(t, "vecino1"));
 
         // el evento a Kafka igual se intento antes de que fallara la notificacion
-        verify(events).publicar(eq(t), isNull(), eq("vecino1"));
+        verify(events).publicar(eq(t), isNull(), eq("vecino1"), isNull());
     }
 
     @Test
@@ -124,9 +124,35 @@ class TramiteEventRelayTest {
 
         Tramite t = new Tramite(9L, "vecino1", "Bache", "Calle Falsa 123");
         fijarId(t, 1L);
-        relay.alCrear(new TramiteCreadoEvent(t));
+        relay.alCrear(new TramiteCreadoEvent(t, "vecino1"));
 
         verify(notif).generarCertificado(eq(t.getId()), eq("comprobante de ingreso"));
-        verify(events).publicar(eq(t), isNull(), eq("vecino1"));
+        verify(events).publicar(eq(t), isNull(), eq("vecino1"), isNull());
+    }
+
+    /** La auditoria tiene que poder decir "el funcionario X lo ingreso a nombre del vecino Y". */
+    @Test
+    void al_crear_a_nombre_de_un_vecino_el_actor_es_el_funcionario() {
+        NotificationPublisher notif = mock(NotificationPublisher.class);
+        RequestsEventPublisher events = mock(RequestsEventPublisher.class);
+        var relay = new TramiteEventRelay(notif, events);
+
+        Tramite t = new Tramite(9L, "vecino1", "Bache", "Calle Falsa 123", "func1");
+        fijarId(t, 1L);
+        relay.alCrear(new TramiteCreadoEvent(t, "func1"));
+
+        verify(events).publicar(eq(t), isNull(), eq("func1"), eq("Ingresado por func1 a nombre de vecino1"));
+    }
+
+    @Test
+    void la_nota_del_cambio_de_estado_viaja_al_evento() {
+        NotificationPublisher notif = mock(NotificationPublisher.class);
+        RequestsEventPublisher events = mock(RequestsEventPublisher.class);
+        var relay = new TramiteEventRelay(notif, events);
+
+        Tramite t = tramiteEn(EstadoTramite.ADMITIDO);
+        relay.alCambiarEstado(new TramiteEstadoCambiadoEvent(t, EstadoTramite.INGRESADO, "func1", "Revisaremos el lunes"));
+
+        verify(events).publicar(eq(t), eq("INGRESADO"), eq("func1"), eq("Revisaremos el lunes"));
     }
 }

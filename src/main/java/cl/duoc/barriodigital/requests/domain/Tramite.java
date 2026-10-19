@@ -39,6 +39,10 @@ public class Tramite {
     @Column(name = "fecha_resolucion")
     private Instant fechaResolucion;
 
+    /** Funcionario que lo ingreso a nombre del vecino; null si lo ingreso el propio vecino. */
+    @Column(name = "creado_por", length = 150)
+    private String creadoPor;
+
     protected Tramite() {
     }
 
@@ -47,6 +51,12 @@ public class Tramite {
         this.vecinoUsername = vecinoUsername;
         this.descripcion = descripcion;
         this.direccion = direccion;
+    }
+
+    /** Tramite que un funcionario ingresa a nombre de un vecino: queda registrado quien lo hizo. */
+    public Tramite(Long tipoId, String vecinoUsername, String descripcion, String direccion, String creadoPor) {
+        this(tipoId, vecinoUsername, descripcion, direccion);
+        this.creadoPor = creadoPor;
     }
 
     /** Aplica la transicion si es valida; lanza IllegalStateException si no. */
@@ -70,4 +80,5 @@ public class Tramite {
     public Instant getFechaIngreso() { return fechaIngreso; }
     public Instant getFechaAdmision() { return fechaAdmision; }
     public Instant getFechaResolucion() { return fechaResolucion; }
+    public String getCreadoPor() { return creadoPor; }
 }
