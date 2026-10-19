@@ -67,6 +67,10 @@ barriodigital:
       certificate-gen: certificate.gen
       certificate-topic: "certificate.*"
       certificate-dlq: certificate.dlq
+      # Solo las publica requests, por cmd.topic. '*' toma exactamente una palabra y
+      # '#' cero o mas: email.resuelto cae en email.*, crew.visita.agendada en crew.#
+      email-resuelto: email.resuelto
+      crew-visita-agendada: crew.visita.agendada
   # Define "hoy" para el cupo diario. Debe ser la zona civil del municipio: con
   # UTC, el cupo se reiniciaba a las 21:00 de Chile y las admisiones de la noche
   # anterior descontaban del cupo del dia siguiente.

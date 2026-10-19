@@ -67,12 +67,15 @@ public class TramiteEventRelay {
 
             switch (t.getEstado()) {
                 case ADMITIDO -> notifications.notificarEmail(t.getId(), "ADMITIDO");
+                // Los cambios de estado de terreno y resolucion se difunden por cmd.topic;
+                // el resto son comandos puntuales por cmd.direct. Uno u otro, nunca los dos:
+                // serian dos mensajes con eventId distinto y el vecino recibiria dos avisos.
                 case EN_TERRENO -> {
                     notifications.notificarEmail(t.getId(), "VISITA_AGENDADA");
-                    notifications.notificarCuadrilla(t.getId(), t.getDireccion());
+                    notifications.difundirVisitaAgendada(t.getId(), t.getDireccion());
                 }
                 case RESUELTO -> {
-                    notifications.notificarEmail(t.getId(), "RESUELTO");
+                    notifications.difundirResuelto(t.getId());
                     notifications.generarCertificado(t.getId(), "certificado de resolucion");
                 }
                 default -> { /* INGRESADO, EN_GESTION, RECHAZADO: sin comando en esta version */ }

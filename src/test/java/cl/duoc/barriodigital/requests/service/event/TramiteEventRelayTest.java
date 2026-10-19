@@ -66,7 +66,8 @@ class TramiteEventRelayTest {
         relay.alCambiarEstado(new TramiteEstadoCambiadoEvent(t, EstadoTramite.EN_GESTION, "func1"));
 
         verify(notif).notificarEmail(1L, "VISITA_AGENDADA");
-        verify(notif).notificarCuadrilla(eq(1L), any());
+        verify(notif).difundirVisitaAgendada(eq(1L), any());
+        verify(notif, never()).notificarCuadrilla(anyLong(), any());
     }
 
     @Test
@@ -78,7 +79,8 @@ class TramiteEventRelayTest {
         Tramite t = tramiteEn(EstadoTramite.RESUELTO);
         relay.alCambiarEstado(new TramiteEstadoCambiadoEvent(t, EstadoTramite.EN_TERRENO, "func1"));
 
-        verify(notif).notificarEmail(1L, "RESUELTO");
+        verify(notif).difundirResuelto(1L);
+        verify(notif, never()).notificarEmail(1L, "RESUELTO");
         verify(notif).generarCertificado(1L, "certificado de resolucion");
     }
 
