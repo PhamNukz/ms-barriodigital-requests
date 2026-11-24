@@ -3,13 +3,16 @@ package cl.duoc.barriodigital.requests.service;
 import cl.duoc.barriodigital.requests.client.CatalogClient;
 import cl.duoc.barriodigital.requests.domain.Contacto;
 import cl.duoc.barriodigital.requests.domain.EstadoTramite;
+import cl.duoc.barriodigital.requests.domain.ReglaVisibilidad;
 import cl.duoc.barriodigital.requests.domain.Tramite;
 import cl.duoc.barriodigital.requests.domain.TramiteHito;
 import cl.duoc.barriodigital.requests.domain.Visita;
 import cl.duoc.barriodigital.requests.kafka.AuditEntry;
+import cl.duoc.barriodigital.requests.repo.ReglaVisibilidadRepository;
 import cl.duoc.barriodigital.requests.repo.TramiteHitoRepository;
 import cl.duoc.barriodigital.requests.repo.TramiteRepository;
 import cl.duoc.barriodigital.requests.service.event.TramiteCreadoEvent;
+import cl.duoc.barriodigital.requests.service.event.ReglasCambiadasEvent;
 import cl.duoc.barriodigital.requests.service.event.TramiteAccionEvent;
 import cl.duoc.barriodigital.requests.service.event.TramiteEstadoCambiadoEvent;
 import cl.duoc.barriodigital.requests.web.TramiteDtos.CrearRequest;
@@ -42,38 +45,95 @@ public class TramiteService {
 
     private final TramiteRepository repo;
     private final TramiteHitoRepository hitos;
+    private final ReglaVisibilidadRepository reglasRepo;
     private final CatalogClient catalogClient;
     private final ApplicationEventPublisher events;
     /** Zona con la que se define "hoy" para el cupo diario (dia civil local, no UTC). */
     private final ZoneId zona;
 
-    public TramiteService(TramiteRepository repo, TramiteHitoRepository hitos, CatalogClient catalogClient,
+    public TramiteService(TramiteRepository repo, TramiteHitoRepository hitos, ReglaVisibilidadRepository reglasRepo,
+                          CatalogClient catalogClient,
                           ApplicationEventPublisher events,
                           @Value("${barriodigital.zona-horaria:America/Santiago}") String zonaHoraria) {
         this.repo = repo;
         this.hitos = hitos;
+        this.reglasRepo = reglasRepo;
         this.catalogClient = catalogClient;
         this.events = events;
         this.zona = ZoneId.of(zonaHoraria);
     }
 
+    /** Rol de quien lee, segun la seccion 6.2 del contrato. SUPERVISOR = Admin o Auditor. */
+    public enum Rol { VECINO, FUNCIONARIO, SUPERVISOR }
+
+    public record Lector(String usuario, Rol rol) {
+        public boolean esVecino() { return rol == Rol.VECINO; }
+    }
+
+    /**
+     * Vecino: los suyos, visibles, no eliminados y sin RECHAZADO si la regla lo dice. Funcionario: todos
+     * los no eliminados (tambien los ocultos al vecino). Admin y Auditor: igual, o solo la papelera.
+     */
     @Transactional(readOnly = true)
-    public List<Tramite> listar(String username, boolean puedeVerTodos,
-                                 EstadoTramite estado, Instant desde, Instant hasta) {
+    public List<Tramite> listar(Lector lector, EstadoTramite estado, Instant desde, Instant hasta, boolean papelera) {
+        if (papelera && lector.rol() != Rol.SUPERVISOR) {
+            throw new AccessDeniedException("Solo Admin y Auditor ven la papelera");
+        }
+        ReglaVisibilidad reglas = reglas();
         // findAll() sin Sort devolvia las filas en el orden que quisiera la base: a
         // Admin/Funcionario la tabla le llegaba desordenada. El vecino ya venia
         // ordenado por su propia query; ahora ambos caminos coinciden.
-        List<Tramite> base = puedeVerTodos
-                ? repo.findAll(Sort.by(Sort.Direction.DESC, "fechaIngreso"))
-                : repo.findAllByVecinoUsernameOrderByFechaIngresoDesc(username);
+        List<Tramite> base = lector.esVecino()
+                ? repo.findAllByVecinoUsernameOrderByFechaIngresoDesc(lector.usuario())
+                : repo.findAll(Sort.by(Sort.Direction.DESC, "fechaIngreso"));
 
         // ponytail: filtro en memoria; si el volumen de tramites crece, pasar a
         // JPA Specifications en vez de listas completas.
         return base.stream()
+                .filter(t -> t.eliminado() == papelera)
+                .filter(t -> !lector.esVecino() || visibleParaVecino(t, reglas))
                 .filter(t -> estado == null || t.getEstado() == estado)
                 .filter(t -> desde == null || !t.getFechaIngreso().isBefore(desde))
                 .filter(t -> hasta == null || !t.getFechaIngreso().isAfter(hasta))
                 .toList();
+    }
+
+    /**
+     * Detalle y seguimiento. Al vecino, un tramite propio oculto, eliminado o filtrado por la regla le
+     * da 404 y no 403: no se le revela que existe. El de otro vecino sigue siendo 403, como antes.
+     */
+    @Transactional(readOnly = true)
+    public Tramite obtenerPara(Long id, Lector lector) {
+        Tramite t = obtener(id);
+        switch (lector.rol()) {
+            case VECINO -> {
+                if (!t.getVecinoUsername().equalsIgnoreCase(lector.usuario())) {
+                    throw new AccessDeniedException("No puedes ver el tramite de otro vecino");
+                }
+                if (!visibleParaVecino(t, reglas())) throw noExiste(id);
+            }
+            case FUNCIONARIO -> {
+                if (t.eliminado()) throw noExiste(id);
+            }
+            case SUPERVISOR -> { /* ve todo, tambien la papelera */ }
+        }
+        return t;
+    }
+
+    private static boolean visibleParaVecino(Tramite t, ReglaVisibilidad reglas) {
+        return t.isVisibleVecino() && !t.eliminado()
+                && (reglas.isMostrarRechazados() || t.getEstado() != EstadoTramite.RECHAZADO);
+    }
+
+    private static NoSuchElementException noExiste(Long id) {
+        return new NoSuchElementException("Tramite " + id + " no existe");
+    }
+
+    /** Toda accion sobre un tramite pasa por aqui: en la papelera no se toca hasta restaurarlo (409). */
+    private Tramite activo(Long id) {
+        Tramite t = obtener(id);
+        if (t.eliminado()) throw new IllegalStateException("El tramite esta en la papelera");
+        return t;
     }
 
     @Transactional(readOnly = true)
@@ -135,7 +195,7 @@ public class TramiteService {
 
     @Transactional
     public Tramite cambiarEstado(Long id, EstadoTramite nuevo, String funcionario, String bearer, String nota) {
-        Tramite tramite = obtener(id);
+        Tramite tramite = activo(id);
         if (nuevo == EstadoTramite.ADMITIDO) {
             verificarCupoDisponible(tramite.getTipoId(), bearer);
         }
@@ -152,7 +212,7 @@ public class TramiteService {
 
     @Transactional
     public Tramite asignarResponsable(Long id, String responsable, String usuario) {
-        Tramite tramite = obtener(id);
+        Tramite tramite = activo(id);
         String anterior = tramite.getResponsable();
         tramite.asignarResponsable(responsable.trim());
         events.publishEvent(new TramiteAccionEvent(tramite, usuario, AuditEntry.Accion.ASIGNAR_RESPONSABLE,
@@ -168,7 +228,7 @@ public class TramiteService {
     @Transactional
     public Tramite proponerVisita(Long id, LocalDate fecha, Visita.Franja franja, String cuadrilla, String nota,
                                   String usuario) {
-        Tramite tramite = obtener(id);
+        Tramite tramite = activo(id);
         // "Ahora" en la hora del municipio, no la del servidor (en AWS corre en UTC).
         Visita visita = tramite.proponerVisita(fecha, franja, cuadrilla, nota, LocalDateTime.now(zona));
 
@@ -201,7 +261,7 @@ public class TramiteService {
     /** El funcionario confirmo por telefono. Idempotente: si ya estaba CONFIRMADA no audita ni avisa. */
     @Transactional
     public Tramite confirmarVisita(Long id, String nota, String usuario) {
-        Tramite tramite = obtener(id);
+        Tramite tramite = activo(id);
         if (tramite.confirmarVisitaPorTelefono()) {
             events.publishEvent(new TramiteAccionEvent(tramite, usuario, AuditEntry.Accion.CONFIRMAR_VISITA,
                     "Visita confirmada por telefono", nota, "VISITA_CONFIRMADA"));
@@ -235,13 +295,71 @@ public class TramiteService {
         if (!tramite.getVecinoUsername().equalsIgnoreCase(usuario)) {
             throw new AccessDeniedException("Solo el vecino del tramite puede " + accion);
         }
+        // Para el vecino, oculto o en la papelera es como si no existiera: 404, no el 409 de la papelera.
+        if (!visibleParaVecino(tramite, reglas())) throw noExiste(id);
         return tramite;
+    }
+
+    // ---- Admin B: visibilidad, papelera y reglas (seccion 6) ----
+
+    @Transactional
+    public Tramite cambiarVisibilidad(Long id, boolean visible, String motivo, String usuario) {
+        String m = Tramite.motivo(motivo);
+        Tramite t = obtener(id);
+        t.cambiarVisibilidad(visible, m);
+        events.publishEvent(new TramiteAccionEvent(t, usuario,
+                visible ? AuditEntry.Accion.MOSTRAR_VECINO : AuditEntry.Accion.OCULTAR_VECINO,
+                visible ? "Visible para el vecino" : "Oculto al vecino", m, null));
+        return t;
+    }
+
+    /** Borrado logico. El cupo del dia no se devuelve: la admision ya ocurrio y sigue contando. */
+    @Transactional
+    public Tramite enviarAPapelera(Long id, String motivo, String usuario) {
+        String m = Tramite.motivo(motivo);
+        Tramite t = obtener(id);
+        t.enviarAPapelera(usuario, Instant.now().truncatedTo(ChronoUnit.MILLIS));
+        events.publishEvent(new TramiteAccionEvent(t, usuario, AuditEntry.Accion.ENVIAR_PAPELERA,
+                "Enviado a la papelera", m, null));
+        return t;
+    }
+
+    /** Admin siempre; Auditor solo con la regla auditorRestaura. */
+    @Transactional
+    public Tramite restaurar(Long id, String motivo, String usuario, boolean esAdmin) {
+        if (!esAdmin && !reglas().isAuditorRestaura()) {
+            throw new AccessDeniedException("El Auditor solo restaura si la regla auditorRestaura esta activa");
+        }
+        String m = Tramite.motivo(motivo);
+        Tramite t = obtener(id);
+        t.restaurar();
+        events.publishEvent(new TramiteAccionEvent(t, usuario, AuditEntry.Accion.RESTAURAR,
+                t.isVisibleVecino() ? "Restaurado" : "Restaurado (sigue oculto al vecino)", m, null));
+        return t;
+    }
+
+    /** Sin fila (H2 de los tests, o antes de V7) valen los valores por defecto. */
+    @Transactional(readOnly = true)
+    public ReglaVisibilidad reglas() {
+        return reglasRepo.findById(ReglaVisibilidad.ID).orElseGet(ReglaVisibilidad::new);
+    }
+
+    @Transactional
+    public ReglaVisibilidad cambiarReglas(boolean mostrarNombreFuncionario, boolean mostrarRechazados,
+                                          int mesesHistorial, int diasPapelera, ReglaVisibilidad.AlVencer alVencer,
+                                          boolean auditorRestaura, String usuario) {
+        ReglaVisibilidad r = reglas();
+        String cambios = r.cambiar(mostrarNombreFuncionario, mostrarRechazados, mesesHistorial, diasPapelera,
+                alVencer, auditorRestaura);
+        r = reglasRepo.save(r);
+        if (!cambios.isEmpty()) events.publishEvent(new ReglasCambiadasEvent(usuario, cambios));
+        return r;
     }
 
     /** Idempotente: si ya estaba en camino no cambia la hora ni repite el correo. */
     @Transactional
     public Tramite avisarEnCamino(Long id, String usuario) {
-        Tramite tramite = obtener(id);
+        Tramite tramite = activo(id);
         // Truncado: la BD guarda microsegundos y el reloj de Windows da decimas de microsegundo,
         // asi que la respuesta del PUT y un GET posterior mostraban horas distintas.
         if (tramite.marcarEnCamino(Instant.now().truncatedTo(ChronoUnit.MILLIS))) {
@@ -257,7 +375,7 @@ public class TramiteService {
      */
     @Transactional
     public TramiteHito planificar(Long id, EstadoTramite estado, Instant fechaEstimada, String nota, String usuario) {
-        Tramite tramite = obtener(id);
+        Tramite tramite = activo(id);
         TramiteHito hito = hitoDe(id, estado);
         if (fechaEstimada != null && cumplido(tramite, hito)) {
             throw new IllegalArgumentException("El paso " + estado + " ya se cumplio: no se le puede poner fecha estimada");

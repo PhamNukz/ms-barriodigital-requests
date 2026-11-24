@@ -70,14 +70,19 @@ public class RequestsEventPublisher {
         auditar(tramite, Instant.now(), usuario, accion, detalle, nota);
     }
 
+    /** Cambio de reglas del Admin: no es de un tramite (tramiteId null; audit lo admite). */
+    public void auditarReglas(String usuario, String cambios) {
+        auditar(null, Instant.now(), usuario, AuditEntry.Accion.CAMBIAR_REGLAS, cambios, null);
+    }
+
     private void auditar(Tramite tramite, Instant cuando, String usuario, AuditEntry.Accion accion,
                          String detalle, String nota) {
         var entrada = new AuditEntry(UUID.randomUUID().toString(), cuando, usuario, accion,
-                tramite.getId(), tramite.getVecinoUsername(),
+                tramite == null ? null : tramite.getId(), tramite == null ? null : tramite.getVecinoUsername(),
                 recortar(detalle, DETALLE_MAX_BYTES), recortar(nota, NOTA_MAX_BYTES), origen);
         // key = eventId, no tramiteId: audit.timeline es compact, y la compactacion deja solo el
         // ultimo registro de cada key. Con tramiteId se perderia la historia de cada tramite.
-        enviar(topicoAuditoria, entrada.eventId(), entrada, entrada.eventId(), tramite.getId());
+        enviar(topicoAuditoria, entrada.eventId(), entrada, entrada.eventId(), entrada.tramiteId());
     }
 
     // Columnas de accion_auditoria en ms-barriodigital-audit: VARCHAR2(200) y VARCHAR2(500), en BYTES.

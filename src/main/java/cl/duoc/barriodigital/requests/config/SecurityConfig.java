@@ -20,6 +20,8 @@ public class SecurityConfig {
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/actuator/health").permitAll()
+                // Antes que la regla general de POST: restaurar es de Admin y Auditor (seccion 6).
+                .requestMatchers(HttpMethod.POST, "/requests/*/restaurar").hasAnyRole("Admin", "Auditor")
                 .requestMatchers(HttpMethod.POST, "/requests/**").hasAnyRole("Vecino", "Funcionario")
                 .requestMatchers(HttpMethod.PUT, "/requests/**").hasAnyRole("Funcionario", "Admin")
                 .anyRequest().authenticated())
