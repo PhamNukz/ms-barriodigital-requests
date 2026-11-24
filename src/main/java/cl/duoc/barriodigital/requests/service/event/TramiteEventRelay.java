@@ -69,20 +69,32 @@ public class TramiteEventRelay {
             events.publicar(t, evt.estadoAnterior().name(), evt.usuario(), evt.nota());
 
             switch (t.getEstado()) {
-                case ADMITIDO -> notifications.notificarEmail(t.getId(), "ADMITIDO");
+                case ADMITIDO -> notifications.notificarEmail(t, "ADMITIDO", null);
+                // El motivo es la nota del cambio de estado: el vecino tiene que saber por que.
+                case RECHAZADO -> notifications.notificarEmail(t, "RECHAZADO", evt.nota());
                 // Los cambios de estado de terreno y resolucion se difunden por cmd.topic;
                 // el resto son comandos puntuales por cmd.direct. Uno u otro, nunca los dos:
                 // serian dos mensajes con eventId distinto y el vecino recibiria dos avisos.
                 case EN_TERRENO -> {
-                    notifications.notificarEmail(t.getId(), "VISITA_AGENDADA");
+                    notifications.notificarEmail(t, "VISITA_AGENDADA", null);
                     notifications.difundirVisitaAgendada(t.getId(), t.getDireccion());
                 }
                 case RESUELTO -> {
-                    notifications.difundirResuelto(t.getId());
+                    notifications.difundirResuelto(t);
                     notifications.generarCertificado(t.getId(), "certificado de resolucion");
                 }
-                default -> { /* INGRESADO, EN_GESTION, RECHAZADO: sin comando en esta version */ }
+                default -> { /* INGRESADO, EN_GESTION: sin comando en esta version */ }
             }
+        });
+    }
+
+    @Async("eventRelayExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void alRegistrarAccion(TramiteAccionEvent evt) {
+        Tramite t = evt.tramite();
+        publicarSinRomper(evt.accion() + " en tramite " + t.getId(), () -> {
+            events.auditar(t, evt.usuario(), evt.accion(), evt.detalle(), evt.nota());
+            if (evt.correo() != null) notifications.notificarEmail(t, evt.correo(), null);
         });
     }
 

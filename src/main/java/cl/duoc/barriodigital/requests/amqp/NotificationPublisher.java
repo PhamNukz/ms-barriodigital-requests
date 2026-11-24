@@ -1,9 +1,12 @@
 package cl.duoc.barriodigital.requests.amqp;
 
+import cl.duoc.barriodigital.requests.domain.Tramite;
+import cl.duoc.barriodigital.requests.domain.Visita;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -31,10 +34,31 @@ public class NotificationPublisher {
         this.props = props;
     }
 
-    public void notificarEmail(Long tramiteId, String tipoNotificacion) {
-        publicar(props.exchanges().direct(), props.routingKeys().emailSend(), props.routingKeys().emailSend(), Map.of(
-                "tramiteId", tramiteId,
-                "tipoNotificacion", tipoNotificacion));
+    /** @param motivo solo para RECHAZADO (la nota del cambio de estado); null en el resto. */
+    public void notificarEmail(Tramite t, String tipoNotificacion, String motivo) {
+        publicar(props.exchanges().direct(), props.routingKeys().emailSend(), props.routingKeys().emailSend(),
+                datosCorreo(t, tipoNotificacion, motivo));
+    }
+
+    /** Lo que notify necesita para escribir el correo sin volver a consultar a requests. */
+    static Map<String, Object> datosCorreo(Tramite t, String tipoNotificacion, String motivo) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("tramiteId", t.getId());
+        data.put("tipoNotificacion", tipoNotificacion);
+        data.put("destinatario", t.getVecinoUsername());
+        data.put("direccion", t.getDireccion() == null ? "" : t.getDireccion());
+        Visita v = t.getVisita();
+        if (v != null) {
+            Map<String, Object> visita = new LinkedHashMap<>();
+            visita.put("fecha", v.getFecha().toString());
+            visita.put("franja", v.getFranja().name());
+            visita.put("cuadrilla", v.getCuadrilla());
+            visita.put("nota", v.getNota());
+            visita.put("estado", v.getEstado().name());
+            data.put("visita", visita);
+        }
+        if (motivo != null && !motivo.isBlank()) data.put("motivo", motivo);
+        return data;
     }
 
     public void notificarCuadrilla(Long tramiteId, String direccion) {
@@ -50,10 +74,9 @@ public class NotificationPublisher {
     }
 
     /** Difunde por cmd.topic que el tramite quedo resuelto (cae en email.*). */
-    public void difundirResuelto(Long tramiteId) {
-        publicar(props.exchanges().topic(), props.routingKeys().emailSend(), props.routingKeys().emailResuelto(), Map.of(
-                "tramiteId", tramiteId,
-                "tipoNotificacion", "RESUELTO"));
+    public void difundirResuelto(Tramite t) {
+        publicar(props.exchanges().topic(), props.routingKeys().emailSend(), props.routingKeys().emailResuelto(),
+                datosCorreo(t, "RESUELTO", null));
     }
 
     /** Difunde por cmd.topic que se agendo la visita en terreno (cae en crew.#). */

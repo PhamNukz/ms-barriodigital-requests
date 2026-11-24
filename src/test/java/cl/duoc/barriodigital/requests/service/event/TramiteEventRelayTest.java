@@ -3,6 +3,7 @@ package cl.duoc.barriodigital.requests.service.event;
 import cl.duoc.barriodigital.requests.amqp.NotificationPublisher;
 import cl.duoc.barriodigital.requests.domain.EstadoTramite;
 import cl.duoc.barriodigital.requests.domain.Tramite;
+import cl.duoc.barriodigital.requests.kafka.AuditEntry;
 import cl.duoc.barriodigital.requests.kafka.RequestsEventPublisher;
 import org.junit.jupiter.api.Test;
 
@@ -51,7 +52,7 @@ class TramiteEventRelayTest {
         Tramite t = tramiteEn(EstadoTramite.ADMITIDO);
         relay.alCambiarEstado(new TramiteEstadoCambiadoEvent(t, EstadoTramite.INGRESADO, "func1"));
 
-        verify(notif).notificarEmail(eq(1L), eq("ADMITIDO"));
+        verify(notif).notificarEmail(eq(t), eq("ADMITIDO"), isNull());
         verify(notif, never()).notificarCuadrilla(anyLong(), any());
         verify(events).publicar(eq(t), eq("INGRESADO"), eq("func1"), isNull());
     }
@@ -65,7 +66,7 @@ class TramiteEventRelayTest {
         Tramite t = tramiteEn(EstadoTramite.EN_TERRENO);
         relay.alCambiarEstado(new TramiteEstadoCambiadoEvent(t, EstadoTramite.EN_GESTION, "func1"));
 
-        verify(notif).notificarEmail(1L, "VISITA_AGENDADA");
+        verify(notif).notificarEmail(t, "VISITA_AGENDADA", null);
         verify(notif).difundirVisitaAgendada(eq(1L), any());
         verify(notif, never()).notificarCuadrilla(anyLong(), any());
     }
@@ -79,8 +80,8 @@ class TramiteEventRelayTest {
         Tramite t = tramiteEn(EstadoTramite.RESUELTO);
         relay.alCambiarEstado(new TramiteEstadoCambiadoEvent(t, EstadoTramite.EN_TERRENO, "func1"));
 
-        verify(notif).difundirResuelto(1L);
-        verify(notif, never()).notificarEmail(1L, "RESUELTO");
+        verify(notif).difundirResuelto(t);
+        verify(notif, never()).notificarEmail(any(), eq("RESUELTO"), any());
         verify(notif).generarCertificado(1L, "certificado de resolucion");
     }
 
@@ -142,6 +143,37 @@ class TramiteEventRelayTest {
         relay.alCrear(new TramiteCreadoEvent(t, "func1"));
 
         verify(events).publicar(eq(t), isNull(), eq("func1"), eq("Ingresado por func1 a nombre de vecino1"));
+    }
+
+    /** Antes RECHAZADO no avisaba nada: el vecino se enteraba solo si entraba a mirar. */
+    @Test
+    void al_rechazar_envia_correo_con_el_motivo() {
+        NotificationPublisher notif = mock(NotificationPublisher.class);
+        RequestsEventPublisher events = mock(RequestsEventPublisher.class);
+        var relay = new TramiteEventRelay(notif, events);
+
+        Tramite t = tramiteEn(EstadoTramite.INGRESADO);
+        t.cambiarEstado(EstadoTramite.RECHAZADO, "func1");
+        relay.alCambiarEstado(new TramiteEstadoCambiadoEvent(t, EstadoTramite.INGRESADO, "func1", "Fuera de la comuna"));
+
+        verify(notif).notificarEmail(t, "RECHAZADO", "Fuera de la comuna");
+    }
+
+    @Test
+    void una_accion_se_audita_y_avisa_al_vecino_solo_si_trae_correo() {
+        NotificationPublisher notif = mock(NotificationPublisher.class);
+        RequestsEventPublisher events = mock(RequestsEventPublisher.class);
+        var relay = new TramiteEventRelay(notif, events);
+        Tramite t = tramiteEn(EstadoTramite.EN_GESTION);
+
+        relay.alRegistrarAccion(new TramiteAccionEvent(t, "vecino1", AuditEntry.Accion.RESPONDER_VISITA,
+                "Visita CONFIRMADA", null, null));
+        relay.alRegistrarAccion(new TramiteAccionEvent(t, "func1", AuditEntry.Accion.PROPONER_VISITA,
+                "Visita ...", null, "VISITA_PROPUESTA"));
+
+        verify(events).auditar(t, "vecino1", AuditEntry.Accion.RESPONDER_VISITA, "Visita CONFIRMADA", null);
+        verify(notif).notificarEmail(t, "VISITA_PROPUESTA", null);
+        verifyNoMoreInteractions(notif);
     }
 
     @Test

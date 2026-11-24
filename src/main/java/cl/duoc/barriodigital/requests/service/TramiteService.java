@@ -4,9 +4,12 @@ import cl.duoc.barriodigital.requests.client.CatalogClient;
 import cl.duoc.barriodigital.requests.domain.EstadoTramite;
 import cl.duoc.barriodigital.requests.domain.Tramite;
 import cl.duoc.barriodigital.requests.domain.TramiteHito;
+import cl.duoc.barriodigital.requests.domain.Visita;
+import cl.duoc.barriodigital.requests.kafka.AuditEntry;
 import cl.duoc.barriodigital.requests.repo.TramiteHitoRepository;
 import cl.duoc.barriodigital.requests.repo.TramiteRepository;
 import cl.duoc.barriodigital.requests.service.event.TramiteCreadoEvent;
+import cl.duoc.barriodigital.requests.service.event.TramiteAccionEvent;
 import cl.duoc.barriodigital.requests.service.event.TramiteEstadoCambiadoEvent;
 import cl.duoc.barriodigital.requests.web.TramiteDtos.CrearRequest;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,7 +20,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -140,6 +145,64 @@ public class TramiteService {
         hitos.save(hito);
 
         events.publishEvent(new TramiteEstadoCambiadoEvent(tramite, anterior, funcionario, nota));
+        return tramite;
+    }
+
+    @Transactional
+    public Tramite asignarResponsable(Long id, String responsable, String usuario) {
+        Tramite tramite = obtener(id);
+        String anterior = tramite.getResponsable();
+        tramite.asignarResponsable(responsable.trim());
+        events.publishEvent(new TramiteAccionEvent(tramite, usuario, AuditEntry.Accion.ASIGNAR_RESPONSABLE,
+                "Responsable " + (anterior == null ? "sin asignar" : anterior) + " -> " + tramite.getResponsable(),
+                null, null));
+        return tramite;
+    }
+
+    /**
+     * Crea o reprograma la visita y planifica el paso EN_TERRENO para el inicio de la franja
+     * (hora local). Si EN_TERRENO ya se cumplio (reprogramacion) su fecha es la real y no se toca.
+     */
+    @Transactional
+    public Tramite proponerVisita(Long id, LocalDate fecha, Visita.Franja franja, String cuadrilla, String nota,
+                                  String usuario) {
+        Tramite tramite = obtener(id);
+        Visita visita = tramite.proponerVisita(fecha, franja, cuadrilla, nota, LocalDate.now(zona));
+
+        TramiteHito hito = hitoDe(id, EstadoTramite.EN_TERRENO);
+        if (!cumplido(tramite, hito)) {
+            hito.planificar(fecha.atTime(franja.horaInicio, 0).atZone(zona).toInstant(), hito.getNota(), usuario);
+            hitos.save(hito);
+        }
+        events.publishEvent(new TramiteAccionEvent(tramite, usuario, AuditEntry.Accion.PROPONER_VISITA,
+                "Visita " + visita.getFecha() + " " + visita.getFranja() + ", " + visita.getCuadrilla(),
+                visita.getNota(), "VISITA_PROPUESTA"));
+        return tramite;
+    }
+
+    /** Solo el vecino dueno responde, aunque quien llame sea funcionario o admin. */
+    @Transactional
+    public Tramite responderVisita(Long id, Visita.Respuesta respuesta, String horarioPedido, String usuario) {
+        Tramite tramite = obtener(id);
+        if (!tramite.getVecinoUsername().equalsIgnoreCase(usuario)) {
+            throw new AccessDeniedException("Solo el vecino del tramite puede responder la visita");
+        }
+        Visita visita = tramite.responderVisita(respuesta, horarioPedido);
+        events.publishEvent(new TramiteAccionEvent(tramite, usuario, AuditEntry.Accion.RESPONDER_VISITA,
+                "Visita " + visita.getEstado(), visita.getHorarioPedido(), null));
+        return tramite;
+    }
+
+    /** Idempotente: si ya estaba en camino no cambia la hora ni repite el correo. */
+    @Transactional
+    public Tramite avisarEnCamino(Long id, String usuario) {
+        Tramite tramite = obtener(id);
+        // Truncado: la BD guarda microsegundos y el reloj de Windows da decimas de microsegundo,
+        // asi que la respuesta del PUT y un GET posterior mostraban horas distintas.
+        if (tramite.marcarEnCamino(Instant.now().truncatedTo(ChronoUnit.MILLIS))) {
+            events.publishEvent(new TramiteAccionEvent(tramite, usuario, AuditEntry.Accion.AVISAR_EN_CAMINO,
+                    "Cuadrilla en camino", null, "EN_CAMINO"));
+        }
         return tramite;
     }
 

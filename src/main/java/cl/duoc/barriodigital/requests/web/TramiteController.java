@@ -7,7 +7,10 @@ import cl.duoc.barriodigital.requests.web.TramiteDtos.CambiarEstadoRequest;
 import cl.duoc.barriodigital.requests.web.TramiteDtos.CrearRequest;
 import cl.duoc.barriodigital.requests.web.TramiteDtos.PasoResponse;
 import cl.duoc.barriodigital.requests.web.TramiteDtos.PlanificarPasoRequest;
+import cl.duoc.barriodigital.requests.web.TramiteDtos.ResponsableRequest;
 import cl.duoc.barriodigital.requests.web.TramiteDtos.Response;
+import cl.duoc.barriodigital.requests.web.TramiteDtos.RespuestaVisitaRequest;
+import cl.duoc.barriodigital.requests.web.TramiteDtos.VisitaRequest;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
@@ -95,6 +98,37 @@ public class TramiteController {
                                          @AuthenticationPrincipal Jwt jwt) {
         service.planificar(id, estado, req.fechaEstimada(), req.nota(), jwt.getClaimAsString("preferred_username"));
         return service.seguimiento(id).stream().map(PasoResponse::from).toList();
+    }
+
+    /** Reasignacion desde el tablero del funcionario. */
+    @PutMapping("/{id}/responsable")
+    @PreAuthorize("hasAnyRole('Funcionario','Admin')")
+    public Response asignarResponsable(@PathVariable Long id, @Valid @RequestBody ResponsableRequest req,
+                                       @AuthenticationPrincipal Jwt jwt) {
+        return Response.from(service.asignarResponsable(id, req.responsable(), jwt.getClaimAsString("preferred_username")));
+    }
+
+    /** Propone (o reprograma) la visita en terreno; el vecino la responde con un boton. */
+    @PutMapping("/{id}/visita")
+    @PreAuthorize("hasAnyRole('Funcionario','Admin')")
+    public Response proponerVisita(@PathVariable Long id, @Valid @RequestBody VisitaRequest req,
+                                   @AuthenticationPrincipal Jwt jwt) {
+        return Response.from(service.proponerVisita(id, req.fecha(), req.franja(), req.cuadrilla(), req.nota(),
+                jwt.getClaimAsString("preferred_username")));
+    }
+
+    /** Solo el vecino dueno: el servicio responde 403 a cualquier otro, aunque sea funcionario. */
+    @PostMapping("/{id}/visita/respuesta")
+    public Response responderVisita(@PathVariable Long id, @Valid @RequestBody RespuestaVisitaRequest req,
+                                    @AuthenticationPrincipal Jwt jwt) {
+        return Response.from(service.responderVisita(id, req.respuesta(), req.horarioPedido(),
+                jwt.getClaimAsString("preferred_username")));
+    }
+
+    @PutMapping("/{id}/en-camino")
+    @PreAuthorize("hasAnyRole('Funcionario','Admin')")
+    public Response avisarEnCamino(@PathVariable Long id, @AuthenticationPrincipal Jwt jwt) {
+        return Response.from(service.avisarEnCamino(id, jwt.getClaimAsString("preferred_username")));
     }
 
     private Tramite visiblePara(Long id, Authentication auth, Jwt jwt) {

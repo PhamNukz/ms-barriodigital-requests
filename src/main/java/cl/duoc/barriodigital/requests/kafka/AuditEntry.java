@@ -21,5 +21,6 @@ public record AuditEntry(
         // requiere que el BFF reenvie X-Forwarded-For; se agrega aqui cuando lo haga.
         String origen) {
 
-    public enum Accion { CREAR, CAMBIAR_ESTADO }
+    // audit guarda la accion como texto (VARCHAR2(30)): sumar valores no rompe su consumidor.
+    public enum Accion { CREAR, CAMBIAR_ESTADO, ASIGNAR_RESPONSABLE, PROPONER_VISITA, RESPONDER_VISITA, AVISAR_EN_CAMINO }
 }
