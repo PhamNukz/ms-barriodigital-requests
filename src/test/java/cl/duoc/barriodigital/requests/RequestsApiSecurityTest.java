@@ -3,6 +3,7 @@ package cl.duoc.barriodigital.requests;
 import cl.duoc.barriodigital.requests.amqp.NotificationPublisher;
 import cl.duoc.barriodigital.requests.client.CatalogClient;
 import cl.duoc.barriodigital.requests.kafka.RequestsEventPublisher;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -12,6 +13,9 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.client.ResourceAccessException;
+
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
@@ -40,6 +44,41 @@ class RequestsApiSecurityTest {
 
     @MockBean
     CatalogClient catalogClient;
+
+    @BeforeEach
+    void tipoActivo() {
+        // Crear valida contra el catalogo que el tipo exista y este activo.
+        when(catalogClient.listarTipos(any()))
+                .thenReturn(List.of(new CatalogClient.TipoTramiteView(1L, "Poda de arbol", 10_000, true)));
+    }
+
+    @Test
+    void crear_un_tramite_de_un_tipo_inactivo_o_que_no_existe_409() throws Exception {
+        when(catalogClient.listarTipos(any())).thenReturn(List.of(
+                new CatalogClient.TipoTramiteView(1L, "Poda de arbol", 5, true),
+                new CatalogClient.TipoTramiteView(2L, "Retiro de escombros", 5, false)));
+
+        mvc.perform(post("/requests").contentType("application/json")
+                        .content("{\"tipoId\":2,\"descripcion\":\"Escombros\"}")
+                        .with(como("Vecino", "vecino1@duocuc.cl")))
+           .andExpect(status().isConflict())
+           .andExpect(jsonPath("$.detail").value("Ese tipo de trámite no está disponible"));
+        mvc.perform(post("/requests").contentType("application/json")
+                        .content("{\"tipoId\":99,\"descripcion\":\"No existe\"}")
+                        .with(como("Vecino", "vecino1@duocuc.cl")))
+           .andExpect(status().isConflict());
+    }
+
+    /** Un catalogo caido no puede impedir que los vecinos ingresen tramites: se crea como antes. */
+    @Test
+    void si_el_catalogo_no_responde_se_crea_igual() throws Exception {
+        when(catalogClient.listarTipos(any())).thenThrow(new ResourceAccessException("catalogo caido"));
+
+        mvc.perform(post("/requests").contentType("application/json")
+                        .content("{\"tipoId\":1,\"descripcion\":\"Bache\"}")
+                        .with(como("Vecino", "vecino1@duocuc.cl")))
+           .andExpect(status().isCreated());
+    }
 
     @Test
     void listar_sin_token_401() throws Exception {

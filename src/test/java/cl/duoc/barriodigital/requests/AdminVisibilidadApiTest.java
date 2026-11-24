@@ -66,6 +66,9 @@ class AdminVisibilidadApiTest {
 
     @BeforeEach
     void hayCupo() {
+        // Crear valida contra el catalogo que el tipo exista y este activo.
+        when(catalogClient.listarTipos(any()))
+                .thenReturn(List.of(new CatalogClient.TipoTramiteView(1L, "Poda de arbol", 10_000, true)));
         when(catalogClient.obtenerTipo(anyLong(), any()))
                 .thenReturn(new CatalogClient.TipoTramiteView(1L, "Poda de arbol", 10_000, true));
     }

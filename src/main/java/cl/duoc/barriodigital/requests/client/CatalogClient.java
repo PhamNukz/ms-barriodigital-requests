@@ -1,11 +1,14 @@
 package cl.duoc.barriodigital.requests.client;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.client.ClientHttpRequestFactories;
+import org.springframework.boot.web.client.ClientHttpRequestFactorySettings;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.time.Duration;
 import java.util.List;
 
 @Component
@@ -13,8 +16,17 @@ public class CatalogClient {
 
     private final RestClient http;
 
+    /**
+     * Timeouts cortos: crear un tramite consulta el catalogo, y sin limite un catalogo colgado dejaba
+     * el ingreso colgado (el BFF corta a los 10 s). Con el timeout, la creacion sigue sin validar.
+     */
     public CatalogClient(@Value("${barriodigital.catalog.base-url}") String baseUrl) {
-        this.http = RestClient.builder().baseUrl(baseUrl).build();
+        ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings.DEFAULTS
+                .withConnectTimeout(Duration.ofSeconds(2))
+                .withReadTimeout(Duration.ofSeconds(3));
+        this.http = RestClient.builder().baseUrl(baseUrl)
+                .requestFactory(ClientHttpRequestFactories.get(settings))
+                .build();
     }
 
     public record TipoTramiteView(Long id, String nombre, Integer cupoDiario, boolean activo) {

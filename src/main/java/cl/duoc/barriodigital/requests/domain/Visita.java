@@ -115,13 +115,14 @@ public class Visita {
      * @param codigoVisto el codigo de la visita que el vecino tenia en pantalla, o null. Si no
      *                    coincide, alguien la reprogramo mientras tanto: confirmaria otra fecha.
      */
-    void responder(Respuesta respuesta, String horarioPedido, String codigoVisto) {
+    void responder(Respuesta respuesta, String horarioPedido, String codigoVisto, LocalDate hoy) {
         if (codigoVisto != null && !codigoVisto.equals(codigo)) {
             throw new IllegalStateException("La visita cambio: revisa la nueva fecha antes de responder");
         }
         if (estado != Estado.PROPUESTA) {
             throw new IllegalStateException("La visita ya fue respondida (" + estado + ")");
         }
+        noPasada(hoy);
         boolean cambia = respuesta == Respuesta.CAMBIAR;
         if (cambia && (horarioPedido == null || horarioPedido.isBlank())) {
             throw new IllegalArgumentException("Para pedir otro horario hay que indicar cual (horarioPedido)");
@@ -132,12 +133,21 @@ public class Visita {
     }
 
     /** @return false si ya estaba CONFIRMADA (idempotente: sin auditoria ni correo de nuevo). */
-    boolean confirmarPorTelefono() {
-        if (estado == Estado.CONFIRMADA) return false;
+    boolean confirmarPorTelefono(LocalDate hoy) {
+        if (estado == Estado.CONFIRMADA) return false; // repetir sigue siendo 200, aunque ya haya pasado
+        noPasada(hoy);
         this.estado = Estado.CONFIRMADA;
         this.horarioPedido = null;
         this.actualizadoEn = Instant.now().truncatedTo(ChronoUnit.MILLIS);
         return true;
+    }
+
+    /**
+     * Confirmar (o pedir cambio de) una visita de ayer no sirve: hay que reprogramarla. Hoy si vale,
+     * aunque la franja ya haya empezado: la cuadrilla todavia puede llegar.
+     */
+    private void noPasada(LocalDate hoy) {
+        if (fecha.isBefore(hoy)) throw new IllegalStateException("La fecha de la visita ya pasó: reprograma");
     }
 
     public LocalDate getFecha() { return fecha; }

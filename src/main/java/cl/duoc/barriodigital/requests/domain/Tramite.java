@@ -197,14 +197,15 @@ public class Tramite {
         return visita;
     }
 
-    public Visita responderVisita(Visita.Respuesta respuesta, String horarioPedido, String codigoVisto) {
-        visitaAbierta().responder(respuesta, horarioPedido, codigoVisto);
+    /** @param hoy dia civil del municipio (Chile), no el de UTC. */
+    public Visita responderVisita(Visita.Respuesta respuesta, String horarioPedido, String codigoVisto, LocalDate hoy) {
+        visitaAbierta().responder(respuesta, horarioPedido, codigoVisto, hoy);
         return visita;
     }
 
     /** El funcionario confirmo por telefono. @return false si ya estaba confirmada. */
-    public boolean confirmarVisitaPorTelefono() {
-        return visitaAbierta().confirmarPorTelefono();
+    public boolean confirmarVisitaPorTelefono(LocalDate hoy) {
+        return visitaAbierta().confirmarPorTelefono(hoy);
     }
 
     private Visita visitaAbierta() {

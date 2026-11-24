@@ -14,12 +14,14 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -46,6 +48,8 @@ class VisitaResponsableApiTest {
 
     @Autowired
     MockMvc mvc;
+    @Autowired
+    JdbcTemplate jdbc;
 
     @MockBean
     JwtDecoder jwtDecoder;
@@ -58,6 +62,9 @@ class VisitaResponsableApiTest {
 
     @BeforeEach
     void hayCupo() {
+        // Crear valida contra el catalogo que el tipo exista y este activo.
+        when(catalogClient.listarTipos(any()))
+                .thenReturn(List.of(new CatalogClient.TipoTramiteView(1L, "Poda de arbol", 10_000, true)));
         when(catalogClient.obtenerTipo(anyLong(), any()))
                 .thenReturn(new CatalogClient.TipoTramiteView(1L, "Poda de arbol", 10_000, true));
     }
@@ -281,6 +288,41 @@ class VisitaResponsableApiTest {
 
     private String codigoDe(ResultActions r) throws Exception {
         return JsonPath.read(r.andExpect(status().isOk()).andReturn().getResponse().getContentAsString(), "$.visita.codigo");
+    }
+
+    /**
+     * Una visita PROPUESTA que quedo en el pasado (nadie la respondio a tiempo). La API no deja
+     * proponer fechas pasadas, asi que se lleva a ayer por SQL. "Ayer" es el dia civil de Chile.
+     */
+    @Test
+    void responder_o_confirmar_por_telefono_una_visita_de_ayer_409() throws Exception {
+        long id = crear();
+        avanzar(id, "ADMITIDO");
+        proponer(id, FUTURO).andExpect(status().isOk());
+        jdbc.update("UPDATE visita SET fecha = ? WHERE tramite_id = ?",
+                LocalDate.now(ZoneId.of("America/Santiago")).minusDays(1), id);
+
+        confirmar(id).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value("La fecha de la visita ya pasó: reprograma"));
+        confirmarPorTelefono(id, null).andExpect(status().isConflict());
+
+        // reprogramar es la salida
+        proponer(id, FUTURO).andExpect(status().isOk());
+        confirmar(id).andExpect(status().isOk()).andExpect(jsonPath("$.visita.estado").value("CONFIRMADA"));
+    }
+
+    /** Ya CONFIRMADA y luego vencida: repetir la confirmacion sigue siendo 200 sin cambios (idempotente). */
+    @Test
+    void confirmar_de_nuevo_una_visita_confirmada_que_ya_paso_sigue_siendo_200() throws Exception {
+        long id = crear();
+        avanzar(id, "ADMITIDO");
+        proponer(id, FUTURO).andExpect(status().isOk());
+        confirmar(id).andExpect(status().isOk());
+        jdbc.update("UPDATE visita SET fecha = ? WHERE tramite_id = ?",
+                LocalDate.now(ZoneId.of("America/Santiago")).minusDays(1), id);
+
+        confirmarPorTelefono(id, null).andExpect(status().isOk())
+                .andExpect(jsonPath("$.visita.estado").value("CONFIRMADA"));
     }
 
     private ResultActions confirmarPorTelefono(long id, String cuerpo) throws Exception {
