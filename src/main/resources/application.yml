@@ -33,9 +33,17 @@ spring:
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
+      # acks=all: el broker confirma cuando todas las replicas en sync tienen el mensaje.
+      # Idempotencia: un reintento del productor no duplica el mensaje en el topico.
+      # Son los defaults de kafka-clients 3.x; se dejan explicitos porque son una decision.
+      acks: all
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       properties:
+        enable.idempotence: true
+        # Cada consumidor deserializa a su propio DTO (tolerant reader): el header
+        # __TypeId__ con la clase Java de requests no le sirve a nadie.
+        spring.json.add.type.headers: false
         # Por defecto max.block.ms son 60s: con los brokers caidos, send()
         # bloqueaba un minuto esperando metadata. Acotado, un broker caido
         # degrada la publicacion en segundos en vez de retener el hilo.
@@ -45,6 +53,11 @@ spring:
         delivery.timeout.ms: 10000
 
 barriodigital:
+  kafka:
+    # Los declara ms-barriodigital-kafkaadmin (particiones, RF, retencion); aqui solo el nombre.
+    topics:
+      requests-events: requests.events
+      audit-timeline: audit.timeline
   rabbitmq:
     exchanges:
       direct: cmd.direct

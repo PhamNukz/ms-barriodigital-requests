@@ -9,6 +9,7 @@ import java.time.Instant;
  * per Service, se enteran solo por el topico.
  */
 public record TramiteEvent(
+        Tipo type,
         String eventId,
         Instant timestamp,
         String traceId,
@@ -20,4 +21,7 @@ public record TramiteEvent(
         String usuario,
         // opcional: la nota del funcionario, o "a nombre de" si un funcionario lo ingreso
         String nota) {
+
+    /** Envelope del Caso (seccion 8): el consumidor sabe que paso sin inferirlo de estadoAnterior == null. */
+    public enum Tipo { TRAMITE_CREADO, ESTADO_CAMBIADO }
 }
