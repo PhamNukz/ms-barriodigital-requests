@@ -78,9 +78,9 @@ class VisitaReglasTest {
         String visto = proponer(t, HOY.plusDays(1), Visita.Franja.MANANA, HOY.atTime(8, 0)).getCodigo();
         proponer(t, HOY.plusDays(3), Visita.Franja.TARDE, HOY.atTime(8, 0)); // reprogramada mientras miraba
 
-        assertThrows(IllegalStateException.class, () -> t.responderVisita(Visita.Respuesta.CONFIRMAR, null, visto));
+        assertThrows(IllegalStateException.class, () -> t.responderVisita(Visita.Respuesta.CONFIRMAR, null, visto, HOY));
         assertEquals(Visita.Estado.PROPUESTA, t.getVisita().getEstado());
-        t.responderVisita(Visita.Respuesta.CONFIRMAR, null, t.getVisita().getCodigo());
+        t.responderVisita(Visita.Respuesta.CONFIRMAR, null, t.getVisita().getCodigo(), HOY);
         assertEquals(Visita.Estado.CONFIRMADA, t.getVisita().getEstado());
     }
 
@@ -88,12 +88,28 @@ class VisitaReglasTest {
     void confirmar_por_telefono_borra_el_horario_pedido_y_es_idempotente() {
         Tramite t = admitido();
         proponer(t, HOY.plusDays(1), Visita.Franja.MANANA, HOY.atTime(8, 0));
-        t.responderVisita(Visita.Respuesta.CAMBIAR, "vie, tarde", null);
+        t.responderVisita(Visita.Respuesta.CAMBIAR, "vie, tarde", null, HOY);
 
-        assertTrue(t.confirmarVisitaPorTelefono());
+        assertTrue(t.confirmarVisitaPorTelefono(HOY));
         assertEquals(Visita.Estado.CONFIRMADA, t.getVisita().getEstado());
         assertNull(t.getVisita().getHorarioPedido());
-        assertFalse(t.confirmarVisitaPorTelefono());
+        assertFalse(t.confirmarVisitaPorTelefono(HOY));
+    }
+
+    @Test
+    void una_visita_de_ayer_no_se_responde_ni_se_confirma_por_telefono() {
+        Tramite t = admitido();
+        proponer(t, HOY, Visita.Franja.TARDE, HOY.atTime(8, 0));
+        LocalDate manana = HOY.plusDays(1);
+
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> t.responderVisita(Visita.Respuesta.CONFIRMAR, null, null, manana));
+        assertEquals("La fecha de la visita ya pasó: reprograma", e.getMessage());
+        assertThrows(IllegalStateException.class, () -> t.confirmarVisitaPorTelefono(manana));
+        assertEquals(Visita.Estado.PROPUESTA, t.getVisita().getEstado());
+
+        // el mismo dia de la visita si vale, aunque la franja ya haya empezado
+        assertTrue(t.confirmarVisitaPorTelefono(HOY));
     }
 
     @Test
@@ -102,8 +118,8 @@ class VisitaReglasTest {
         proponer(t, HOY.plusDays(1), Visita.Franja.MANANA, HOY.atTime(8, 0));
         t.cambiarEstado(EstadoTramite.RECHAZADO, "func1");
 
-        assertThrows(IllegalStateException.class, () -> t.responderVisita(Visita.Respuesta.CONFIRMAR, null, null));
-        assertThrows(IllegalStateException.class, t::confirmarVisitaPorTelefono);
+        assertThrows(IllegalStateException.class, () -> t.responderVisita(Visita.Respuesta.CONFIRMAR, null, null, HOY));
+        assertThrows(IllegalStateException.class, () -> t.confirmarVisitaPorTelefono(HOY));
         assertThrows(IllegalStateException.class,
                 () -> proponer(t, HOY.plusDays(2), Visita.Franja.MANANA, HOY.atTime(8, 0)));
     }
@@ -113,12 +129,12 @@ class VisitaReglasTest {
         Tramite t = admitido();
         t.cambiarEstado(EstadoTramite.EN_GESTION, "func1");
         proponer(t, HOY.plusDays(1), Visita.Franja.MANANA, HOY.atTime(8, 0));
-        t.responderVisita(Visita.Respuesta.CONFIRMAR, null, null);
+        t.responderVisita(Visita.Respuesta.CONFIRMAR, null, null, HOY);
         t.cambiarEstado(EstadoTramite.EN_TERRENO, "func1");
         proponer(t, HOY.plusDays(2), Visita.Franja.MANANA, HOY.atTime(8, 0)); // vuelve a PROPUESTA
 
         assertThrows(IllegalStateException.class, () -> t.marcarEnCamino(Instant.now()));
-        t.confirmarVisitaPorTelefono();
+        t.confirmarVisitaPorTelefono(HOY);
         assertTrue(t.marcarEnCamino(Instant.now()));
     }
 

@@ -109,7 +109,8 @@ public class TramiteController {
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAnyRole('Vecino','Funcionario')")
     public Response crear(@Valid @RequestBody CrearRequest req, Authentication auth, @AuthenticationPrincipal Jwt jwt) {
-        return vista(service.crear(req, jwt.getClaimAsString("preferred_username"), tieneRol(auth, "Funcionario")),
+        return vista(service.crear(req, jwt.getClaimAsString("preferred_username"), tieneRol(auth, "Funcionario"),
+                        jwt.getTokenValue()),
                 lector(auth, jwt));
     }
 

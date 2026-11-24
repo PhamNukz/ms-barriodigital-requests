@@ -16,12 +16,15 @@ import cl.duoc.barriodigital.requests.service.event.ReglasCambiadasEvent;
 import cl.duoc.barriodigital.requests.service.event.TramiteAccionEvent;
 import cl.duoc.barriodigital.requests.service.event.TramiteEstadoCambiadoEvent;
 import cl.duoc.barriodigital.requests.web.TramiteDtos.CrearRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Sort;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestClientException;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -37,6 +40,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class TramiteService {
+
+    private static final Logger log = LoggerFactory.getLogger(TramiteService.class);
 
     /** Camino normal del tramite, en orden. RECHAZADO se agrega solo si ocurrio. */
     private static final List<EstadoTramite> FLUJO = List.of(
@@ -176,7 +181,7 @@ public class TramiteService {
      *                               registrado como creadoPor, y la auditoria lo muestra.
      */
     @Transactional
-    public Tramite crear(CrearRequest req, String actor, boolean puedeIngresarPorOtro) {
+    public Tramite crear(CrearRequest req, String actor, boolean puedeIngresarPorOtro, String bearer) {
         String vecino = actor;
         String creadoPor = null;
         if (req.vecinoUsername() != null && !req.vecinoUsername().isBlank()
@@ -187,6 +192,7 @@ public class TramiteService {
             vecino = req.vecinoUsername().trim();
             creadoPor = actor;
         }
+        verificarTipoDisponible(req.tipoId(), bearer);
         Tramite nuevo = new Tramite(req.tipoId(), vecino, req.descripcion(), req.direccion(), creadoPor);
         nuevo.ubicar(req.lat(), req.lng(), req.referencia());
         Tramite tramite = repo.save(nuevo);
@@ -259,7 +265,7 @@ public class TramiteService {
     public Tramite responderVisita(Long id, Visita.Respuesta respuesta, String horarioPedido, String codigoVisto,
                                    String usuario) {
         Tramite tramite = delVecino(id, usuario, "responder la visita");
-        Visita visita = tramite.responderVisita(respuesta, horarioPedido, codigoVisto);
+        Visita visita = tramite.responderVisita(respuesta, horarioPedido, codigoVisto, LocalDate.now(zona));
         events.publishEvent(new TramiteAccionEvent(tramite, usuario, AuditEntry.Accion.RESPONDER_VISITA,
                 "Visita " + visita.getEstado(), visita.getHorarioPedido(), null));
         return tramite;
@@ -269,7 +275,7 @@ public class TramiteService {
     @Transactional
     public Tramite confirmarVisita(Long id, String nota, String usuario) {
         Tramite tramite = activo(id);
-        if (tramite.confirmarVisitaPorTelefono()) {
+        if (tramite.confirmarVisitaPorTelefono(LocalDate.now(zona))) {
             events.publishEvent(new TramiteAccionEvent(tramite, usuario, AuditEntry.Accion.CONFIRMAR_VISITA,
                     "Visita confirmada por telefono", nota, "VISITA_CONFIRMADA"));
         }
@@ -437,6 +443,26 @@ public class TramiteService {
             case RECHAZADO -> t.getEstado() == EstadoTramite.RECHAZADO ? t.getFechaResolucion() : null;
             default -> null;
         };
+    }
+
+    /**
+     * El tipo tiene que existir en el catalogo y estar activo (409 si no).
+     *
+     * <p>Si el catalogo no responde (caido, timeout, o cualquier error al consultarlo) se crea igual,
+     * como antes de esta validacion: un catalogo caido no puede impedir que los vecinos ingresen
+     * tramites. El tramite queda INGRESADO y la admision vuelve a consultar el catalogo (cupo).
+     */
+    private void verificarTipoDisponible(Long tipoId, String bearer) {
+        List<CatalogClient.TipoTramiteView> tipos;
+        try {
+            tipos = catalogClient.listarTipos(bearer);
+        } catch (RestClientException e) {
+            log.warn("Catalogo no disponible al crear un tramite de tipo {}: se crea sin validar el tipo ({})",
+                    tipoId, e.toString());
+            return;
+        }
+        boolean disponible = tipos.stream().anyMatch(t -> tipoId.equals(t.id()) && t.activo());
+        if (!disponible) throw new IllegalStateException("Ese tipo de trámite no está disponible");
     }
 
     private void verificarCupoDisponible(Long tipoId, String bearer) {

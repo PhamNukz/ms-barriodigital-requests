@@ -56,7 +56,7 @@ class MigracionVisitaTest {
         t.proponerVisita(LocalDate.of(2030, 1, 15), Visita.Franja.TARDE, "Cuadrilla Norte", "Ramas en la vereda",
                 LocalDateTime.of(2030, 1, 1, 8, 0));
         String codigo = t.getVisita().getCodigo();
-        t.responderVisita(Visita.Respuesta.CAMBIAR, "vie 18, manana", null);
+        t.responderVisita(Visita.Respuesta.CAMBIAR, "vie 18, manana", null, LocalDate.of(2030, 1, 1));
         t.agregarContacto("Hija", "hija@correo.cl");
         Long id = repo.saveAndFlush(t).getId();
         em.clear();
@@ -124,7 +124,7 @@ class MigracionVisitaTest {
         Tramite a = repo.findById(id).orElseThrow();
         em.detach(a);
         Tramite b = repo.findById(id).orElseThrow();
-        b.responderVisita(Visita.Respuesta.CONFIRMAR, null, null);
+        b.responderVisita(Visita.Respuesta.CONFIRMAR, null, null, LocalDate.of(2030, 1, 1));
         repo.saveAndFlush(b);
 
         a.proponerVisita(LocalDate.of(2030, 1, 20), Visita.Franja.MANANA, "Sur", null, LocalDateTime.of(2030, 1, 1, 8, 0));
