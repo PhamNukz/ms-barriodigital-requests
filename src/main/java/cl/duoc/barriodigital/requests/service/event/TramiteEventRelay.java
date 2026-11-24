@@ -77,7 +77,7 @@ public class TramiteEventRelay {
                 // serian dos mensajes con eventId distinto y el vecino recibiria dos avisos.
                 case EN_TERRENO -> {
                     notifications.notificarEmail(t, "VISITA_AGENDADA", null);
-                    notifications.difundirVisitaAgendada(t.getId(), t.getDireccion());
+                    notifications.difundirVisitaAgendada(t);
                 }
                 case RESUELTO -> {
                     notifications.difundirResuelto(t);

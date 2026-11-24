@@ -10,11 +10,13 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 
 public final class TramiteDtos {
 
@@ -69,8 +71,21 @@ public final class TramiteDtos {
                                 @NotBlank @Size(max = 100) String cuadrilla, @Size(max = 500) String nota) {
     }
 
-    /** @param horarioPedido obligatorio solo con CAMBIAR ("vie 27, tarde"). */
-    public record RespuestaVisitaRequest(@NotNull Visita.Respuesta respuesta, @Size(max = 100) String horarioPedido) {
+    /**
+     * @param horarioPedido obligatorio solo con CAMBIAR ("vie 27, tarde").
+     * @param codigo        opcional: el visita.codigo que el vecino tenia en pantalla. Si la
+     *                      reprogramaron mientras tanto no coincide y se responde 409.
+     */
+    public record RespuestaVisitaRequest(@NotNull Visita.Respuesta respuesta, @Size(max = 100) String horarioPedido,
+                                         @Pattern(regexp = "\\d{4}", message = "el codigo son 4 digitos") String codigo) {
+    }
+
+    /** Body opcional de la confirmacion por telefono. */
+    public record ConfirmarVisitaRequest(@Size(max = 500) String nota) {
+    }
+
+    public record ContactoRequest(@NotBlank @Size(max = 100) String nombre,
+                                  @NotBlank @Email(message = "el correo del contacto no es valido") @Size(max = 150) String correo) {
     }
 
     public record Response(
@@ -78,23 +93,27 @@ public final class TramiteDtos {
             EstadoTramite estado, String funcionarioAsignado,
             Instant fechaIngreso, Instant fechaAdmision, Instant fechaResolucion, String creadoPor,
             BigDecimal lat, BigDecimal lng, String referencia,
-            String responsable, Instant enCaminoDesde, VisitaResponse visita) {
+            String responsable, Instant enCaminoDesde, VisitaResponse visita, List<ContactoResponse> contactos) {
 
         public static Response from(Tramite t) {
             return new Response(t.getId(), t.getTipoId(), t.getVecinoUsername(), t.getDescripcion(),
                     t.getDireccion(), t.getEstado(), t.getFuncionarioAsignado(),
                     t.getFechaIngreso(), t.getFechaAdmision(), t.getFechaResolucion(), t.getCreadoPor(),
                     t.getLat(), t.getLng(), t.getReferencia(),
-                    t.getResponsable(), t.getEnCaminoDesde(), VisitaResponse.from(t.getVisita()));
+                    t.getResponsable(), t.getEnCaminoDesde(), VisitaResponse.from(t.getVisita()),
+                    t.getContactos().stream().map(c -> new ContactoResponse(c.getId(), c.getNombre(), c.getCorreo())).toList());
         }
     }
 
+    public record ContactoResponse(Long id, String nombre, String correo) {
+    }
+
     public record VisitaResponse(LocalDate fecha, Visita.Franja franja, String cuadrilla, String nota,
-                                 Visita.Estado estado, String horarioPedido, Instant actualizadoEn) {
+                                 Visita.Estado estado, String horarioPedido, Instant actualizadoEn, String codigo) {
 
         static VisitaResponse from(Visita v) {
             return v == null ? null : new VisitaResponse(v.getFecha(), v.getFranja(), v.getCuadrilla(), v.getNota(),
-                    v.getEstado(), v.getHorarioPedido(), v.getActualizadoEn());
+                    v.getEstado(), v.getHorarioPedido(), v.getActualizadoEn(), v.getCodigo());
         }
     }
 

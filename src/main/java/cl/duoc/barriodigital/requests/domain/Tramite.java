@@ -5,6 +5,10 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.NoSuchElementException;
 
 @Entity
@@ -69,6 +73,13 @@ public class Tramite {
     @OneToOne(mappedBy = "tramite", cascade = CascadeType.ALL)
     private Visita visita;
 
+    public static final int MAX_CONTACTOS = 3;
+
+    // EAGER: son a lo mas 3 y los leen la respuesta (fuera de la transaccion) y el relay asincrono.
+    @OneToMany(mappedBy = "tramite", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    @OrderBy("id")
+    private List<Contacto> contactos = new ArrayList<>();
+
     protected Tramite() {
     }
 
@@ -120,22 +131,62 @@ public class Tramite {
      * Crea o reemplaza la visita, que queda PROPUESTA. En EN_TERRENO es una reprogramacion:
      * el aviso "en camino" era de la visita anterior, asi que se borra.
      */
-    public Visita proponerVisita(LocalDate fecha, Visita.Franja franja, String cuadrilla, String nota, LocalDate hoy) {
+    public Visita proponerVisita(LocalDate fecha, Visita.Franja franja, String cuadrilla, String nota,
+                                 LocalDateTime ahoraLocal) {
         if (estado != EstadoTramite.ADMITIDO && estado != EstadoTramite.EN_GESTION && estado != EstadoTramite.EN_TERRENO) {
             throw new IllegalStateException("No se puede proponer una visita en estado " + estado);
         }
-        if (fecha.isBefore(hoy)) throw new IllegalArgumentException("La fecha de la visita ya paso");
+        if (fecha.isBefore(ahoraLocal.toLocalDate())) throw new IllegalArgumentException("La fecha de la visita ya paso");
+        // Hoy solo si la franja aun no empieza: a las 15:00 ya no se puede proponer "hoy en la manana".
+        if (!fecha.atTime(franja.horaInicio, 0).isAfter(ahoraLocal)) {
+            throw new IllegalArgumentException("La franja " + franja + " de hoy ya empezo");
+        }
         if (visita == null) visita = new Visita(this);
         visita.proponer(fecha, franja, cuadrilla, nota);
         enCaminoDesde = null;
         return visita;
     }
 
-    public Visita responderVisita(Visita.Respuesta respuesta, String horarioPedido) {
+    public Visita responderVisita(Visita.Respuesta respuesta, String horarioPedido, String codigoVisto) {
+        visitaAbierta().responder(respuesta, horarioPedido, codigoVisto);
+        return visita;
+    }
+
+    /** El funcionario confirmo por telefono. @return false si ya estaba confirmada. */
+    public boolean confirmarVisitaPorTelefono() {
+        return visitaAbierta().confirmarPorTelefono();
+    }
+
+    private Visita visitaAbierta() {
         if (visita == null) throw new NoSuchElementException("El tramite " + id + " no tiene visita");
         if (cerrado()) throw new IllegalStateException("El tramite esta cerrado (" + estado + ")");
-        visita.responder(respuesta, horarioPedido);
         return visita;
+    }
+
+    public Contacto agregarContacto(String nombre, String correo) {
+        if (cerrado()) throw new IllegalStateException("El tramite esta cerrado (" + estado + ")");
+        String normalizado = correo.trim().toLowerCase(Locale.ROOT);
+        if (normalizado.equalsIgnoreCase(vecinoUsername)) {
+            throw new IllegalStateException("Ese correo es el del vecino: ya recibe los avisos");
+        }
+        if (contactos.stream().anyMatch(c -> c.getCorreo().equals(normalizado))) {
+            throw new IllegalStateException("Ese correo ya es contacto del tramite");
+        }
+        // ponytail: el maximo se cuenta en memoria; dos altas simultaneas con correos distintos
+        // podrian dejar 4. El UNIQUE de V6 solo frena el mismo correo (doble clic).
+        if (contactos.size() >= MAX_CONTACTOS) {
+            throw new IllegalStateException("El tramite ya tiene " + MAX_CONTACTOS + " contactos");
+        }
+        Contacto nuevo = new Contacto(this, nombre.trim(), normalizado);
+        contactos.add(nuevo);
+        return nuevo;
+    }
+
+    public Contacto quitarContacto(Long contactoId) {
+        Contacto c = contactos.stream().filter(x -> contactoId.equals(x.getId())).findFirst()
+                .orElseThrow(() -> new NoSuchElementException("El contacto " + contactoId + " no es de este tramite"));
+        contactos.remove(c);
+        return c;
     }
 
     /** @return true si recien se marco; false si ya estaba en camino (idempotente, sin segundo aviso). */
@@ -144,6 +195,10 @@ public class Tramite {
             throw new IllegalStateException("Solo se avisa en camino en EN_TERRENO (esta en " + estado + ")");
         }
         if (enCaminoDesde != null) return false;
+        // Tras reprogramar en EN_TERRENO la visita vuelve a PROPUESTA: no se sale a una fecha sin confirmar.
+        if (visita != null && visita.getEstado() != Visita.Estado.CONFIRMADA) {
+            throw new IllegalStateException("El vecino no ha confirmado la visita");
+        }
         enCaminoDesde = ahora;
         return true;
     }
@@ -165,4 +220,5 @@ public class Tramite {
     public String getResponsable() { return responsable; }
     public Instant getEnCaminoDesde() { return enCaminoDesde; }
     public Visita getVisita() { return visita; }
+    public List<Contacto> getContactos() { return List.copyOf(contactos); }
 }
