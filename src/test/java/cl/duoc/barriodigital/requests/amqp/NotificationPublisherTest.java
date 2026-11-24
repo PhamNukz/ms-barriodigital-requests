@@ -120,6 +120,18 @@ class NotificationPublisherTest {
         assertEquals(List.of("hija@correo.cl"), rechazo.get("cc"));
     }
 
+    /** Oculto al vecino: si le llegara el correo, sabria de un tramite que en la app le da 404. */
+    @Test
+    void un_tramite_oculto_no_le_envia_correos_al_vecino() {
+        Tramite t = tramite(13L);
+        t.cambiarVisibilidad(false, "Duplicado");
+
+        publisher.notificarEmail(t, "RECHAZADO", "Duplicado");
+        publisher.difundirResuelto(t);
+
+        verifyNoInteractions(rabbit);
+    }
+
     @Test
     void sin_contactos_no_va_cc() {
         publisher.notificarEmail(tramite(12L), "ADMITIDO", null);

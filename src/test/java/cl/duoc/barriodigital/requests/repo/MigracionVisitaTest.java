@@ -1,6 +1,7 @@
 package cl.duoc.barriodigital.requests.repo;
 
 import cl.duoc.barriodigital.requests.domain.EstadoTramite;
+import cl.duoc.barriodigital.requests.domain.ReglaVisibilidad;
 import cl.duoc.barriodigital.requests.domain.Tramite;
 import cl.duoc.barriodigital.requests.domain.Visita;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -42,6 +45,8 @@ class MigracionVisitaTest {
     TestEntityManager em;
     @Autowired
     JdbcTemplate jdbc;
+    @Autowired
+    ReglaVisibilidadRepository reglas;
 
     @Test
     void v5_guarda_responsable_en_camino_y_visita() {
@@ -68,6 +73,30 @@ class MigracionVisitaTest {
         assertNotNull(v.getActualizadoEn());
         assertEquals(codigo, v.getCodigo());
         assertEquals("hija@correo.cl", leido.getContactos().get(0).getCorreo());
+    }
+
+    /** V7: la fila de reglas por defecto y las columnas de visibilidad y papelera. */
+    @Test
+    void v7_trae_las_reglas_por_defecto_y_guarda_visibilidad_y_papelera() {
+        ReglaVisibilidad r = reglas.findById(ReglaVisibilidad.ID).orElseThrow();
+        assertTrue(r.isMostrarNombreFuncionario());
+        assertTrue(r.isMostrarRechazados());
+        assertEquals(12, r.getMesesHistorial());
+        assertEquals(90, r.getDiasPapelera());
+        assertEquals(ReglaVisibilidad.AlVencer.ANONIMIZAR, r.getAlVencer());
+        assertFalse(r.isAuditorRestaura());
+
+        Tramite t = new Tramite(1L, "vecino1@duocuc.cl", "Poda", "Calle 1");
+        t.cambiarVisibilidad(false, "Duplicado del tramite anterior, ingresó dos veces");
+        t.enviarAPapelera("admin@duocuc.cl", java.time.Instant.parse("2030-01-01T12:00:00Z"));
+        Long id = repo.saveAndFlush(t).getId();
+        em.clear();
+
+        Tramite leido = repo.findById(id).orElseThrow();
+        assertFalse(leido.isVisibleVecino());
+        assertTrue(leido.getMotivoVisibilidad().endsWith("ingresó dos veces"));
+        assertEquals("admin@duocuc.cl", leido.getEliminadoPor());
+        assertTrue(leido.eliminado());
     }
 
     /** V6: el UNIQUE (tramite_id, correo) frena el doble clic aunque la app no alcance a verlo. */

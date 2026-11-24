@@ -73,6 +73,20 @@ public class Tramite {
     @OneToOne(mappedBy = "tramite", cascade = CascadeType.ALL)
     private Visita visita;
 
+    /** Admin: oculto al vecino (lo sigue viendo el funcionario). */
+    @Column(name = "visible_vecino", nullable = false)
+    private boolean visibleVecino = true;
+
+    @Column(name = "motivo_visibilidad", length = 200)
+    private String motivoVisibilidad;
+
+    /** Papelera (borrado logico): no null = eliminado. La fila no se borra y el cupo no se devuelve. */
+    @Column(name = "eliminado_en")
+    private Instant eliminadoEn;
+
+    @Column(name = "eliminado_por", length = 150)
+    private String eliminadoPor;
+
     public static final int MAX_CONTACTOS = 3;
 
     // EAGER: son a lo mas 3 y los leen la respuesta (fuera de la transaccion) y el relay asincrono.
@@ -116,6 +130,42 @@ public class Tramite {
         if (nuevo == EstadoTramite.EN_GESTION && responsable == null) this.responsable = funcionario;
         if (nuevo == EstadoTramite.ADMITIDO) this.fechaAdmision = Instant.now();
         if (nuevo == EstadoTramite.RESUELTO || nuevo == EstadoTramite.RECHAZADO) this.fechaResolucion = Instant.now();
+    }
+
+    public boolean eliminado() {
+        return eliminadoEn != null;
+    }
+
+    /** Motivo obligatorio de las acciones del Admin: 3 a 200 caracteres sin contar los espacios de los bordes. */
+    public static String motivo(String motivo) {
+        String m = motivo == null ? "" : motivo.trim();
+        if (m.length() < 3 || m.length() > 200) {
+            throw new IllegalArgumentException("El motivo debe tener entre 3 y 200 caracteres");
+        }
+        return m;
+    }
+
+    /** @param motivo ya validado con {@link #motivo(String)}. */
+    public void cambiarVisibilidad(boolean visible, String motivo) {
+        if (eliminado()) throw new IllegalStateException("El tramite esta en la papelera");
+        if (visibleVecino == visible) {
+            throw new IllegalStateException(visible ? "El tramite ya es visible para el vecino" : "El tramite ya esta oculto al vecino");
+        }
+        this.visibleVecino = visible;
+        this.motivoVisibilidad = motivo;
+    }
+
+    public void enviarAPapelera(String usuario, Instant ahora) {
+        if (eliminado()) throw new IllegalStateException("El tramite ya esta en la papelera");
+        this.eliminadoEn = ahora;
+        this.eliminadoPor = usuario;
+    }
+
+    /** Sale de la papelera tal como estaba: visibleVecino no se toca. */
+    public void restaurar() {
+        if (!eliminado()) throw new IllegalStateException("El tramite no esta en la papelera");
+        this.eliminadoEn = null;
+        this.eliminadoPor = null;
     }
 
     public boolean cerrado() {
@@ -221,4 +271,8 @@ public class Tramite {
     public Instant getEnCaminoDesde() { return enCaminoDesde; }
     public Visita getVisita() { return visita; }
     public List<Contacto> getContactos() { return List.copyOf(contactos); }
+    public boolean isVisibleVecino() { return visibleVecino; }
+    public String getMotivoVisibilidad() { return motivoVisibilidad; }
+    public Instant getEliminadoEn() { return eliminadoEn; }
+    public String getEliminadoPor() { return eliminadoPor; }
 }

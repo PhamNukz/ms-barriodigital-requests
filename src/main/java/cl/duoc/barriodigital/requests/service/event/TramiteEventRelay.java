@@ -98,6 +98,12 @@ public class TramiteEventRelay {
         });
     }
 
+    @Async("eventRelayExecutor")
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void alCambiarReglas(ReglasCambiadasEvent evt) {
+        publicarSinRomper("cambio de reglas", () -> events.auditarReglas(evt.usuario(), evt.cambios()));
+    }
+
     private void publicarSinRomper(String contexto, Runnable publicacion) {
         try {
             publicacion.run();

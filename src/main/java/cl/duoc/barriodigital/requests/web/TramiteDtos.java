@@ -1,6 +1,7 @@
 package cl.duoc.barriodigital.requests.web;
 
 import cl.duoc.barriodigital.requests.domain.EstadoTramite;
+import cl.duoc.barriodigital.requests.domain.ReglaVisibilidad;
 import cl.duoc.barriodigital.requests.domain.Tramite;
 import cl.duoc.barriodigital.requests.domain.Visita;
 import cl.duoc.barriodigital.requests.service.TramiteService.Paso;
@@ -80,6 +81,24 @@ public final class TramiteDtos {
                                          @Pattern(regexp = "\\d{4}", message = "el codigo son 4 digitos") String codigo) {
     }
 
+    /** @param motivo 3 a 200 caracteres; lo valida Tramite.motivo (400). */
+    public record VisibilidadRequest(@NotNull Boolean visibleVecino, String motivo) {
+    }
+
+    public record MotivoRequest(String motivo) {
+    }
+
+    /** Reglas completas (GET y PUT /requests/reglas). Las opciones las valida ReglaVisibilidad (400). */
+    public record ReglasDto(@NotNull Boolean mostrarNombreFuncionario, @NotNull Boolean mostrarRechazados,
+                            @NotNull Integer mesesHistorial, @NotNull Integer diasPapelera,
+                            @NotNull ReglaVisibilidad.AlVencer alVencer, @NotNull Boolean auditorRestaura) {
+
+        public static ReglasDto from(ReglaVisibilidad r) {
+            return new ReglasDto(r.isMostrarNombreFuncionario(), r.isMostrarRechazados(), r.getMesesHistorial(),
+                    r.getDiasPapelera(), r.getAlVencer(), r.isAuditorRestaura());
+        }
+    }
+
     /** Body opcional de la confirmacion por telefono. */
     public record ConfirmarVisitaRequest(@Size(max = 500) String nota) {
     }
@@ -93,7 +112,8 @@ public final class TramiteDtos {
             EstadoTramite estado, String funcionarioAsignado,
             Instant fechaIngreso, Instant fechaAdmision, Instant fechaResolucion, String creadoPor,
             BigDecimal lat, BigDecimal lng, String referencia,
-            String responsable, Instant enCaminoDesde, VisitaResponse visita, List<ContactoResponse> contactos) {
+            String responsable, Instant enCaminoDesde, VisitaResponse visita, List<ContactoResponse> contactos,
+            boolean visibleVecino, String motivoVisibilidad, Instant eliminadoEn, String eliminadoPor) {
 
         public static Response from(Tramite t) {
             return new Response(t.getId(), t.getTipoId(), t.getVecinoUsername(), t.getDescripcion(),
@@ -101,7 +121,20 @@ public final class TramiteDtos {
                     t.getFechaIngreso(), t.getFechaAdmision(), t.getFechaResolucion(), t.getCreadoPor(),
                     t.getLat(), t.getLng(), t.getReferencia(),
                     t.getResponsable(), t.getEnCaminoDesde(), VisitaResponse.from(t.getVisita()),
-                    t.getContactos().stream().map(c -> new ContactoResponse(c.getId(), c.getNombre(), c.getCorreo())).toList());
+                    t.getContactos().stream().map(c -> new ContactoResponse(c.getId(), c.getNombre(), c.getCorreo())).toList(),
+                    t.isVisibleVecino(), t.getMotivoVisibilidad(), t.getEliminadoEn(), t.getEliminadoPor());
+        }
+
+        /**
+         * Lo que le llega al vecino: nunca el motivo interno del Admin ni quien lo elimino, y sin
+         * nombres de funcionarios si la regla mostrarNombreFuncionario esta apagada.
+         */
+        public Response paraVecino(boolean mostrarNombres) {
+            return new Response(id, tipoId, vecinoUsername, descripcion, direccion, estado,
+                    mostrarNombres ? funcionarioAsignado : null, fechaIngreso, fechaAdmision, fechaResolucion,
+                    mostrarNombres ? creadoPor : null, lat, lng, referencia,
+                    mostrarNombres ? responsable : null, enCaminoDesde, visita, contactos,
+                    visibleVecino, null, eliminadoEn, null);
         }
     }
 
@@ -122,6 +155,10 @@ public final class TramiteDtos {
 
         public static PasoResponse from(Paso p) {
             return new PasoResponse(p.estado(), p.fechaCumplido(), p.fechaEstimada(), p.nota(), p.actualizadoPor());
+        }
+
+        public PasoResponse sinNombre() {
+            return new PasoResponse(estado, fechaCumplido, fechaEstimada, nota, null);
         }
     }
 }

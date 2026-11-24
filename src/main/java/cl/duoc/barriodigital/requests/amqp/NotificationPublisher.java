@@ -3,6 +3,8 @@ package cl.duoc.barriodigital.requests.amqp;
 import cl.duoc.barriodigital.requests.domain.Contacto;
 import cl.duoc.barriodigital.requests.domain.Tramite;
 import cl.duoc.barriodigital.requests.domain.Visita;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 
@@ -29,6 +31,8 @@ import java.util.UUID;
 @Component
 public class NotificationPublisher {
 
+    private static final Logger log = LoggerFactory.getLogger(NotificationPublisher.class);
+
     private final RabbitTemplate rabbit;
     private final RabbitProperties props;
 
@@ -39,8 +43,19 @@ public class NotificationPublisher {
 
     /** @param motivo solo para RECHAZADO (la nota del cambio de estado); null en el resto. */
     public void notificarEmail(Tramite t, String tipoNotificacion, String motivo) {
+        if (ocultoAlVecino(t, tipoNotificacion)) return;
         publicar(props.exchanges().direct(), props.routingKeys().emailSend(), props.routingKeys().emailSend(),
                 datosCorreo(t, tipoNotificacion, motivo));
+    }
+
+    /**
+     * Un tramite que el Admin oculto al vecino no le llega por correo: si le avisaramos, le
+     * revelariamos lo que en la app le responde 404. La cuadrilla y el certificado siguen igual.
+     */
+    private static boolean ocultoAlVecino(Tramite t, String tipo) {
+        if (t.isVisibleVecino()) return false;
+        log.info("Tramite {} oculto al vecino: no se envia el correo {}", t.getId(), tipo);
+        return true;
     }
 
     /** Correos que hablan de la visita: solo estos la llevan, con su codigo. */
@@ -89,6 +104,7 @@ public class NotificationPublisher {
 
     /** Difunde por cmd.topic que el tramite quedo resuelto (cae en email.*). */
     public void difundirResuelto(Tramite t) {
+        if (ocultoAlVecino(t, "RESUELTO")) return;
         publicar(props.exchanges().topic(), props.routingKeys().emailSend(), props.routingKeys().emailResuelto(),
                 datosCorreo(t, "RESUELTO", null));
     }
