@@ -85,8 +85,10 @@ class RequestsApiSecurityTest {
      */
     @Test
     void la_ruta_cupos_no_la_captura_el_id() throws Exception {
+        // Tipo 77: ningun otro test lo persiste. Con el tipo 1, VisitaResponsableApiTest (mismo
+        // contexto y misma H2) deja tramites admitidos hoy y el cupo dependia del orden de los tests.
         when(catalogClient.listarTipos(any()))
-                .thenReturn(java.util.List.of(new CatalogClient.TipoTramiteView(1L, "Poda de arbol", 5, true)));
+                .thenReturn(java.util.List.of(new CatalogClient.TipoTramiteView(77L, "Poda de arbol", 5, true)));
 
         mvc.perform(get("/requests/cupos")
                 .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_Funcionario"))))
