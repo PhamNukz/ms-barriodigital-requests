@@ -3,11 +3,15 @@ package cl.duoc.barriodigital.requests.web;
 import cl.duoc.barriodigital.requests.domain.EstadoTramite;
 import cl.duoc.barriodigital.requests.domain.Tramite;
 import cl.duoc.barriodigital.requests.service.TramiteService.Paso;
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 
 public final class TramiteDtos {
@@ -15,18 +19,35 @@ public final class TramiteDtos {
     private TramiteDtos() {
     }
 
+    static final String FUERA = "el punto marcado queda fuera de la comuna de Valparaiso";
+
     /**
      * @param vecinoUsername solo para Funcionario: correo del vecino a cuyo nombre se ingresa.
      *                       Si viene vacio, el tramite es de quien lo ingresa.
+     * @param lat            opcional, junto con lng: el punto marcado en el mapa. Debe caer en el
+     *                       rectangulo que contiene la comuna de Valparaiso continental (limite
+     *                       comunal de OpenStreetMap, relacion 110808, redondeado hacia afuera).
+     * @param referencia     opcional: cerro, pasaje, escalera, color de la casa.
      */
     public record CrearRequest(
             @NotNull Long tipoId,
             @NotBlank String descripcion,
-            String direccion,
-            @Email(message = "el correo del vecino no es valido") @Size(max = 150) String vecinoUsername) {
+            @Size(max = 300) String direccion,
+            @Email(message = "el correo del vecino no es valido") @Size(max = 150) String vecinoUsername,
+            // ponytail: rectangulo, no el poligono comunal: deja pasar bordes de Vina del Mar y
+            // Casablanca. Si hace falta precision, validar contra el limite oficial (IDE Chile).
+            @DecimalMin(value = "-33.22", message = FUERA) @DecimalMax(value = "-33.01", message = FUERA) BigDecimal lat,
+            @DecimalMin(value = "-71.76", message = FUERA) @DecimalMax(value = "-71.38", message = FUERA) BigDecimal lng,
+            @Size(max = 300) String referencia) {
 
         public CrearRequest(Long tipoId, String descripcion, String direccion) {
-            this(tipoId, descripcion, direccion, null);
+            this(tipoId, descripcion, direccion, null, null, null, null);
+        }
+
+        /** Un punto a medias (solo lat o solo lng) no sirve para llegar. */
+        @AssertTrue(message = "lat y lng van juntos")
+        public boolean isUbicacionCompleta() {
+            return (lat == null) == (lng == null);
         }
     }
 
@@ -41,12 +62,14 @@ public final class TramiteDtos {
     public record Response(
             Long id, Long tipoId, String vecinoUsername, String descripcion, String direccion,
             EstadoTramite estado, String funcionarioAsignado,
-            Instant fechaIngreso, Instant fechaAdmision, Instant fechaResolucion, String creadoPor) {
+            Instant fechaIngreso, Instant fechaAdmision, Instant fechaResolucion, String creadoPor,
+            BigDecimal lat, BigDecimal lng, String referencia) {
 
         public static Response from(Tramite t) {
             return new Response(t.getId(), t.getTipoId(), t.getVecinoUsername(), t.getDescripcion(),
                     t.getDireccion(), t.getEstado(), t.getFuncionarioAsignado(),
-                    t.getFechaIngreso(), t.getFechaAdmision(), t.getFechaResolucion(), t.getCreadoPor());
+                    t.getFechaIngreso(), t.getFechaAdmision(), t.getFechaResolucion(), t.getCreadoPor(),
+                    t.getLat(), t.getLng(), t.getReferencia());
         }
     }
 

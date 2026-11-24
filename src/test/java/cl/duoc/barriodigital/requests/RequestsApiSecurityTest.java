@@ -179,4 +179,45 @@ class RequestsApiSecurityTest {
                 .with(como("Vecino", "vecino1@duocuc.cl")))
            .andExpect(status().isForbidden());
     }
+
+    // ---------- ubicacion en el mapa (V4) ----------
+
+    @Test
+    void tramite_con_punto_en_el_cerro_concepcion_guarda_ubicacion_y_referencia() throws Exception {
+        mvc.perform(post("/requests").contentType("application/json")
+                .content("{\"tipoId\":1,\"descripcion\":\"Bache\",\"direccion\":\"Pilcomayo 581\","
+                        + "\"lat\":-33.0418123,\"lng\":-71.6269,\"referencia\":\"  Escalera al lado de la casa azul \"}")
+                .with(como("Vecino", "vecino5@duocuc.cl")))
+           .andExpect(status().isCreated())
+           .andExpect(jsonPath("$.lat").value(-33.041812))
+           .andExpect(jsonPath("$.lng").value(-71.6269))
+           .andExpect(jsonPath("$.referencia").value("Escalera al lado de la casa azul"));
+    }
+
+    @Test
+    void tramite_sin_mapa_sigue_funcionando_y_la_ubicacion_queda_null() throws Exception {
+        mvc.perform(post("/requests").contentType("application/json")
+                .content("{\"tipoId\":1,\"descripcion\":\"Bache\",\"direccion\":\"Calle Falsa 123\"}")
+                .with(como("Vecino", "vecino5@duocuc.cl")))
+           .andExpect(status().isCreated())
+           .andExpect(jsonPath("$.lat").doesNotExist())
+           .andExpect(jsonPath("$.referencia").doesNotExist());
+    }
+
+    @Test
+    void punto_fuera_de_valparaiso_400() throws Exception {
+        // Plaza de Armas de Santiago
+        mvc.perform(post("/requests").contentType("application/json")
+                .content("{\"tipoId\":1,\"descripcion\":\"Bache\",\"lat\":-33.4378,\"lng\":-70.6504}")
+                .with(como("Vecino", "vecino5@duocuc.cl")))
+           .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void punto_a_medias_400() throws Exception {
+        mvc.perform(post("/requests").contentType("application/json")
+                .content("{\"tipoId\":1,\"descripcion\":\"Bache\",\"lat\":-33.0418}")
+                .with(como("Vecino", "vecino5@duocuc.cl")))
+           .andExpect(status().isBadRequest());
+    }
 }
