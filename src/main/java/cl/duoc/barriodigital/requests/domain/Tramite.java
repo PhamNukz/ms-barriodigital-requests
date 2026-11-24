@@ -1,6 +1,8 @@
 package cl.duoc.barriodigital.requests.domain;
 
 import jakarta.persistence.*;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 
 @Entity
@@ -43,6 +45,17 @@ public class Tramite {
     @Column(name = "creado_por", length = 150)
     private String creadoPor;
 
+    /** Punto marcado en el mapa (WGS84). Null en los tramites sin mapa. */
+    @Column(precision = 9, scale = 6)
+    private BigDecimal lat;
+
+    @Column(precision = 9, scale = 6)
+    private BigDecimal lng;
+
+    /** Como llegar: cerro, pasaje, escalera, color de la casa. */
+    @Column(length = 300)
+    private String referencia;
+
     protected Tramite() {
     }
 
@@ -57,6 +70,13 @@ public class Tramite {
     public Tramite(Long tipoId, String vecinoUsername, String descripcion, String direccion, String creadoPor) {
         this(tipoId, vecinoUsername, descripcion, direccion);
         this.creadoPor = creadoPor;
+    }
+
+    /** Punto del mapa y referencias; se redondea a la escala de la columna (6 decimales, ~0,1 m). */
+    public void ubicar(BigDecimal lat, BigDecimal lng, String referencia) {
+        this.lat = lat == null ? null : lat.setScale(6, RoundingMode.HALF_UP);
+        this.lng = lng == null ? null : lng.setScale(6, RoundingMode.HALF_UP);
+        this.referencia = referencia == null || referencia.isBlank() ? null : referencia.trim();
     }
 
     /** Aplica la transicion si es valida; lanza IllegalStateException si no. */
@@ -81,4 +101,7 @@ public class Tramite {
     public Instant getFechaAdmision() { return fechaAdmision; }
     public Instant getFechaResolucion() { return fechaResolucion; }
     public String getCreadoPor() { return creadoPor; }
+    public BigDecimal getLat() { return lat; }
+    public BigDecimal getLng() { return lng; }
+    public String getReferencia() { return referencia; }
 }

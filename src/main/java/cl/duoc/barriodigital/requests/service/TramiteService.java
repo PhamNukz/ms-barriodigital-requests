@@ -113,7 +113,9 @@ public class TramiteService {
             vecino = req.vecinoUsername().trim();
             creadoPor = actor;
         }
-        Tramite tramite = repo.save(new Tramite(req.tipoId(), vecino, req.descripcion(), req.direccion(), creadoPor));
+        Tramite nuevo = new Tramite(req.tipoId(), vecino, req.descripcion(), req.direccion(), creadoPor);
+        nuevo.ubicar(req.lat(), req.lng(), req.referencia());
+        Tramite tramite = repo.save(nuevo);
 
         TramiteHito ingreso = new TramiteHito(tramite.getId(), EstadoTramite.INGRESADO);
         ingreso.cumplir(tramite.getFechaIngreso(), actor,
