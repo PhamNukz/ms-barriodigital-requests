@@ -67,7 +67,7 @@ class TramiteEventRelayTest {
         relay.alCambiarEstado(new TramiteEstadoCambiadoEvent(t, EstadoTramite.EN_GESTION, "func1"));
 
         verify(notif).notificarEmail(t, "VISITA_AGENDADA", null);
-        verify(notif).difundirVisitaAgendada(eq(1L), any());
+        verify(notif).difundirVisitaAgendada(t);
         verify(notif, never()).notificarCuadrilla(anyLong(), any());
     }
 

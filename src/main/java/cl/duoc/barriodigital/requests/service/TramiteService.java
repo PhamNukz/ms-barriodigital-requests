@@ -1,6 +1,7 @@
 package cl.duoc.barriodigital.requests.service;
 
 import cl.duoc.barriodigital.requests.client.CatalogClient;
+import cl.duoc.barriodigital.requests.domain.Contacto;
 import cl.duoc.barriodigital.requests.domain.EstadoTramite;
 import cl.duoc.barriodigital.requests.domain.Tramite;
 import cl.duoc.barriodigital.requests.domain.TramiteHito;
@@ -21,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -167,11 +169,12 @@ public class TramiteService {
     public Tramite proponerVisita(Long id, LocalDate fecha, Visita.Franja franja, String cuadrilla, String nota,
                                   String usuario) {
         Tramite tramite = obtener(id);
-        Visita visita = tramite.proponerVisita(fecha, franja, cuadrilla, nota, LocalDate.now(zona));
+        // "Ahora" en la hora del municipio, no la del servidor (en AWS corre en UTC).
+        Visita visita = tramite.proponerVisita(fecha, franja, cuadrilla, nota, LocalDateTime.now(zona));
 
         TramiteHito hito = hitoDe(id, EstadoTramite.EN_TERRENO);
         if (!cumplido(tramite, hito)) {
-            hito.planificar(fecha.atTime(franja.horaInicio, 0).atZone(zona).toInstant(), hito.getNota(), usuario);
+            hito.planificar(visita.inicio(zona), hito.getNota(), usuario);
             hitos.save(hito);
         }
         events.publishEvent(new TramiteAccionEvent(tramite, usuario, AuditEntry.Accion.PROPONER_VISITA,
@@ -180,16 +183,58 @@ public class TramiteService {
         return tramite;
     }
 
-    /** Solo el vecino dueno responde, aunque quien llame sea funcionario o admin. */
+    /**
+     * Solo el vecino dueno responde, aunque quien llame sea funcionario o admin.
+     * @param codigoVisto codigo de la visita que el vecino tenia en pantalla (opcional): si ya no
+     *                    coincide, la reprogramaron y se responde 409 en vez de confirmar otra fecha.
+     */
     @Transactional
-    public Tramite responderVisita(Long id, Visita.Respuesta respuesta, String horarioPedido, String usuario) {
-        Tramite tramite = obtener(id);
-        if (!tramite.getVecinoUsername().equalsIgnoreCase(usuario)) {
-            throw new AccessDeniedException("Solo el vecino del tramite puede responder la visita");
-        }
-        Visita visita = tramite.responderVisita(respuesta, horarioPedido);
+    public Tramite responderVisita(Long id, Visita.Respuesta respuesta, String horarioPedido, String codigoVisto,
+                                   String usuario) {
+        Tramite tramite = delVecino(id, usuario, "responder la visita");
+        Visita visita = tramite.responderVisita(respuesta, horarioPedido, codigoVisto);
         events.publishEvent(new TramiteAccionEvent(tramite, usuario, AuditEntry.Accion.RESPONDER_VISITA,
                 "Visita " + visita.getEstado(), visita.getHorarioPedido(), null));
+        return tramite;
+    }
+
+    /** El funcionario confirmo por telefono. Idempotente: si ya estaba CONFIRMADA no audita ni avisa. */
+    @Transactional
+    public Tramite confirmarVisita(Long id, String nota, String usuario) {
+        Tramite tramite = obtener(id);
+        if (tramite.confirmarVisitaPorTelefono()) {
+            events.publishEvent(new TramiteAccionEvent(tramite, usuario, AuditEntry.Accion.CONFIRMAR_VISITA,
+                    "Visita confirmada por telefono", nota, "VISITA_CONFIRMADA"));
+        }
+        return tramite;
+    }
+
+    @Transactional
+    public Tramite agregarContacto(Long id, String nombre, String correo, String usuario) {
+        Tramite tramite = delVecino(id, usuario, "agregar contactos");
+        Contacto c = tramite.agregarContacto(nombre, correo);
+        // flush aqui: el id del contacto va en la respuesta, y un doble clic que choque con el
+        // UNIQUE de V6 sale como DataIntegrityViolationException (409) desde el repositorio.
+        repo.saveAndFlush(tramite);
+        events.publishEvent(new TramiteAccionEvent(tramite, usuario, AuditEntry.Accion.AGREGAR_CONTACTO,
+                "Contacto " + c.getNombre() + " <" + c.getCorreo() + ">", null, null));
+        return tramite;
+    }
+
+    @Transactional
+    public Tramite quitarContacto(Long id, Long contactoId, String usuario) {
+        Tramite tramite = delVecino(id, usuario, "quitar contactos");
+        Contacto c = tramite.quitarContacto(contactoId);
+        events.publishEvent(new TramiteAccionEvent(tramite, usuario, AuditEntry.Accion.QUITAR_CONTACTO,
+                "Contacto " + c.getNombre() + " <" + c.getCorreo() + ">", null, null));
+        return tramite;
+    }
+
+    private Tramite delVecino(Long id, String usuario, String accion) {
+        Tramite tramite = obtener(id);
+        if (!tramite.getVecinoUsername().equalsIgnoreCase(usuario)) {
+            throw new AccessDeniedException("Solo el vecino del tramite puede " + accion);
+        }
         return tramite;
     }
 

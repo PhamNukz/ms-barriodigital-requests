@@ -4,6 +4,8 @@ import cl.duoc.barriodigital.requests.domain.EstadoTramite;
 import cl.duoc.barriodigital.requests.domain.Tramite;
 import cl.duoc.barriodigital.requests.service.TramiteService;
 import cl.duoc.barriodigital.requests.web.TramiteDtos.CambiarEstadoRequest;
+import cl.duoc.barriodigital.requests.web.TramiteDtos.ConfirmarVisitaRequest;
+import cl.duoc.barriodigital.requests.web.TramiteDtos.ContactoRequest;
 import cl.duoc.barriodigital.requests.web.TramiteDtos.CrearRequest;
 import cl.duoc.barriodigital.requests.web.TramiteDtos.PasoResponse;
 import cl.duoc.barriodigital.requests.web.TramiteDtos.PlanificarPasoRequest;
@@ -121,8 +123,31 @@ public class TramiteController {
     @PostMapping("/{id}/visita/respuesta")
     public Response responderVisita(@PathVariable Long id, @Valid @RequestBody RespuestaVisitaRequest req,
                                     @AuthenticationPrincipal Jwt jwt) {
-        return Response.from(service.responderVisita(id, req.respuesta(), req.horarioPedido(),
+        return Response.from(service.responderVisita(id, req.respuesta(), req.horarioPedido(), req.codigo(),
                 jwt.getClaimAsString("preferred_username")));
+    }
+
+    /** El funcionario confirmo la visita por telefono (vecinos que no usan la app). */
+    @PutMapping("/{id}/visita/confirmar")
+    @PreAuthorize("hasAnyRole('Funcionario','Admin')")
+    public Response confirmarVisita(@PathVariable Long id, @Valid @RequestBody(required = false) ConfirmarVisitaRequest req,
+                                    @AuthenticationPrincipal Jwt jwt) {
+        return Response.from(service.confirmarVisita(id, req == null ? null : req.nota(),
+                jwt.getClaimAsString("preferred_username")));
+    }
+
+    /** Familiar que recibe copia de los avisos. Solo el vecino dueno (403 a cualquier otro). */
+    @PostMapping("/{id}/contactos")
+    public Response agregarContacto(@PathVariable Long id, @Valid @RequestBody ContactoRequest req,
+                                    @AuthenticationPrincipal Jwt jwt) {
+        return Response.from(service.agregarContacto(id, req.nombre(), req.correo(),
+                jwt.getClaimAsString("preferred_username")));
+    }
+
+    @DeleteMapping("/{id}/contactos/{contactoId}")
+    public Response quitarContacto(@PathVariable Long id, @PathVariable Long contactoId,
+                                   @AuthenticationPrincipal Jwt jwt) {
+        return Response.from(service.quitarContacto(id, contactoId, jwt.getClaimAsString("preferred_username")));
     }
 
     @PutMapping("/{id}/en-camino")

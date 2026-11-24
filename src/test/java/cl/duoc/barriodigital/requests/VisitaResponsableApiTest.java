@@ -2,6 +2,7 @@ package cl.duoc.barriodigital.requests;
 
 import cl.duoc.barriodigital.requests.amqp.NotificationPublisher;
 import cl.duoc.barriodigital.requests.client.CatalogClient;
+import cl.duoc.barriodigital.requests.kafka.AuditEntry;
 import cl.duoc.barriodigital.requests.kafka.RequestsEventPublisher;
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +22,8 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
@@ -273,5 +276,172 @@ class VisitaResponsableApiTest {
 
         verify(notificationPublisher, timeout(2000))
                 .notificarEmail(argThat(t -> t.getId() == id), eq("RECHAZADO"), eq("motivo de prueba"));
+    }
+    // ---- 5.1 codigo, 5.2 confirmacion por telefono, 5.3 contactos, y casos de borde ----
+
+    private String codigoDe(ResultActions r) throws Exception {
+        return JsonPath.read(r.andExpect(status().isOk()).andReturn().getResponse().getContentAsString(), "$.visita.codigo");
+    }
+
+    private ResultActions confirmarPorTelefono(long id, String cuerpo) throws Exception {
+        var put = put("/requests/" + id + "/visita/confirmar").with(como("Funcionario", FUNC));
+        return mvc.perform(cuerpo == null ? put : put.contentType("application/json").content(cuerpo));
+    }
+
+    private ResultActions contacto(long id, RequestPostProcessor quien, String nombre, String correo) throws Exception {
+        return mvc.perform(post("/requests/" + id + "/contactos").contentType("application/json")
+                .content("{\"nombre\":\"" + nombre + "\",\"correo\":\"" + correo + "\"}").with(quien));
+    }
+
+    private long contactoId(ResultActions r, int i) throws Exception {
+        return JsonPath.<Number>read(r.andReturn().getResponse().getContentAsString(), "$.contactos[" + i + "].id").longValue();
+    }
+
+    @Test
+    void la_visita_trae_un_codigo_de_4_digitos_y_reprogramar_lo_cambia() throws Exception {
+        long id = crear();
+        avanzar(id, "ADMITIDO");
+
+        String primero = codigoDe(proponer(id, FUTURO));
+        String segundo = codigoDe(proponer(id, FUTURO.plusDays(1)));
+
+        assertTrue(primero.matches("\\d{4}"), primero);
+        assertTrue(segundo.matches("\\d{4}"), segundo);
+        assertNotEquals(primero, segundo);
+    }
+
+    /** El vecino miraba la visita del lunes; la reprogramaron al miercoles antes de que apretara "Si". */
+    @Test
+    void responder_con_el_codigo_de_una_visita_ya_reprogramada_409() throws Exception {
+        long id = crear();
+        avanzar(id, "ADMITIDO");
+        String visto = codigoDe(proponer(id, FUTURO));
+        String actual = codigoDe(proponer(id, FUTURO.plusDays(2)));
+
+        responder(id, como("Vecino", VECINO), "{\"respuesta\":\"CONFIRMAR\",\"codigo\":\"12a\"}")
+                .andExpect(status().isBadRequest());
+        responder(id, como("Vecino", VECINO), "{\"respuesta\":\"CONFIRMAR\",\"codigo\":\"" + visto + "\"}")
+                .andExpect(status().isConflict());
+        responder(id, como("Vecino", VECINO), "{\"respuesta\":\"CONFIRMAR\",\"codigo\":\"" + actual + "\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.visita.estado").value("CONFIRMADA"))
+                .andExpect(jsonPath("$.visita.fecha").value(FUTURO.plusDays(2).toString()));
+    }
+
+    @Test
+    void confirmar_por_telefono_es_idempotente_audita_y_avisa_una_sola_vez() throws Exception {
+        long id = crear();
+        avanzar(id, "ADMITIDO");
+        proponer(id, FUTURO).andExpect(status().isOk());
+        responder(id, como("Vecino", VECINO), "{\"respuesta\":\"LLAMAR\"}").andExpect(status().isOk());
+
+        confirmarPorTelefono(id, "{\"nota\":\"Hable con la hija\"}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.visita.estado").value("CONFIRMADA"));
+        confirmarPorTelefono(id, null).andExpect(status().isOk())   // sin body: tambien vale
+                .andExpect(jsonPath("$.visita.estado").value("CONFIRMADA"));
+
+        verify(notificationPublisher, after(500).times(1))
+                .notificarEmail(argThat(t -> t.getId() == id), eq("VISITA_CONFIRMADA"), isNull());
+        verify(requestsEventPublisher, times(1)).auditar(argThat(t -> t.getId() == id), eq(FUNC),
+                eq(AuditEntry.Accion.CONFIRMAR_VISITA), eq("Visita confirmada por telefono"), eq("Hable con la hija"));
+    }
+
+    @Test
+    void confirmar_por_telefono_403_404_y_409() throws Exception {
+        long sinVisita = crear();
+        avanzar(sinVisita, "ADMITIDO");
+        confirmarPorTelefono(sinVisita, null).andExpect(status().isNotFound());
+
+        long id = crear();
+        avanzar(id, "ADMITIDO");
+        proponer(id, FUTURO).andExpect(status().isOk());
+        mvc.perform(put("/requests/" + id + "/visita/confirmar").with(como("Vecino", VECINO)))
+                .andExpect(status().isForbidden());
+
+        avanzar(id, "RECHAZADO");
+        confirmarPorTelefono(id, null).andExpect(status().isConflict());
+        confirmar(id).andExpect(status().isConflict()); // el vecino tampoco responde una visita de un tramite cerrado
+    }
+
+    @Test
+    void no_se_avisa_en_camino_de_una_visita_reprogramada_sin_confirmar() throws Exception {
+        long id = crear();
+        avanzar(id, "ADMITIDO", "EN_GESTION");
+        proponer(id, FUTURO).andExpect(status().isOk());
+        confirmar(id).andExpect(status().isOk());
+        avanzar(id, "EN_TERRENO");
+        proponer(id, FUTURO.plusDays(1)).andExpect(status().isOk());
+
+        enCamino(id).andExpect(status().isConflict());
+        confirmarPorTelefono(id, null).andExpect(status().isOk());
+        enCamino(id).andExpect(status().isOk()).andExpect(jsonPath("$.enCaminoDesde").exists());
+    }
+
+    @Test
+    void contactos_sin_el_vecino_sin_repetir_y_maximo_tres() throws Exception {
+        long id = crear();
+        mvc.perform(get("/requests/" + id).with(como("Vecino", VECINO)))
+                .andExpect(jsonPath("$.contactos").isArray())
+                .andExpect(jsonPath("$.contactos").isEmpty());
+
+        contacto(id, como("Vecino", VECINO), "Hija", "Hija@Correo.cl").andExpect(status().isOk())
+                .andExpect(jsonPath("$.contactos[0].id").exists())
+                .andExpect(jsonPath("$.contactos[0].nombre").value("Hija"))
+                .andExpect(jsonPath("$.contactos[0].correo").value("hija@correo.cl"));
+        contacto(id, como("Vecino", VECINO), "Hija", "HIJA@correo.cl").andExpect(status().isConflict());
+        contacto(id, como("Vecino", VECINO), "Yo", VECINO.toUpperCase()).andExpect(status().isConflict());
+        contacto(id, como("Vecino", VECINO), "Hijo", "no-es-correo").andExpect(status().isBadRequest());
+        contacto(id, como("Vecino", VECINO), "", "hijo@correo.cl").andExpect(status().isBadRequest());
+
+        contacto(id, como("Vecino", VECINO), "Hijo", "hijo@correo.cl").andExpect(status().isOk());
+        contacto(id, como("Vecino", VECINO), "Nieta", "nieta@correo.cl").andExpect(status().isOk())
+                .andExpect(jsonPath("$.contactos.length()").value(3));
+        contacto(id, como("Vecino", VECINO), "Cuarto", "cuarto@correo.cl").andExpect(status().isConflict());
+    }
+
+    @Test
+    void solo_el_vecino_dueno_agrega_o_quita_contactos() throws Exception {
+        long id = crear();
+        long hija = contactoId(contacto(id, como("Vecino", VECINO), "Hija", "hija@correo.cl"), 0);
+
+        contacto(id, como("Vecino", "otro@duocuc.cl"), "X", "x@correo.cl").andExpect(status().isForbidden());
+        contacto(id, como("Funcionario", FUNC), "X", "x@correo.cl").andExpect(status().isForbidden());
+        contacto(id, como("Admin", "admin@duocuc.cl"), "X", "x@correo.cl").andExpect(status().isForbidden());
+        mvc.perform(delete("/requests/" + id + "/contactos/" + hija).with(como("Funcionario", FUNC)))
+                .andExpect(status().isForbidden());
+
+        // un contacto que existe pero es de otro tramite tambien es 404 aca
+        long otro = crear();
+        long ajeno = contactoId(contacto(otro, como("Vecino", VECINO), "Hijo", "hijo@correo.cl"), 0);
+        mvc.perform(delete("/requests/" + id + "/contactos/" + ajeno).with(como("Vecino", VECINO)))
+                .andExpect(status().isNotFound());
+        mvc.perform(delete("/requests/" + id + "/contactos/999999").with(como("Vecino", VECINO)))
+                .andExpect(status().isNotFound());
+
+        mvc.perform(delete("/requests/" + id + "/contactos/" + hija).with(como("Vecino", VECINO)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.contactos").isEmpty());
+    }
+
+    @Test
+    void con_el_tramite_cerrado_no_se_agregan_contactos_pero_se_pueden_quitar() throws Exception {
+        long id = crear();
+        long hija = contactoId(contacto(id, como("Vecino", VECINO), "Hija", "hija@correo.cl"), 0);
+        avanzar(id, "RECHAZADO");
+
+        contacto(id, como("Vecino", VECINO), "Hijo", "hijo@correo.cl").andExpect(status().isConflict());
+        mvc.perform(delete("/requests/" + id + "/contactos/" + hija).with(como("Vecino", VECINO)))
+                .andExpect(status().isOk());
+    }
+
+    /** El relay corre en otro hilo, con la entidad ya fuera de la transaccion: los contactos tienen que venir cargados. */
+    @Test
+    void el_correo_del_rechazo_sale_con_los_contactos_cargados() throws Exception {
+        long id = crear();
+        contacto(id, como("Vecino", VECINO), "Hija", "hija@correo.cl").andExpect(status().isOk());
+        avanzar(id, "RECHAZADO");
+
+        verify(notificationPublisher, timeout(2000)).notificarEmail(
+                argThat(t -> t.getId() == id && t.getContactos().size() == 1), eq("RECHAZADO"), eq("motivo de prueba"));
     }
 }

@@ -22,5 +22,6 @@ public record AuditEntry(
         String origen) {
 
     // audit guarda la accion como texto (VARCHAR2(30)): sumar valores no rompe su consumidor.
-    public enum Accion { CREAR, CAMBIAR_ESTADO, ASIGNAR_RESPONSABLE, PROPONER_VISITA, RESPONDER_VISITA, AVISAR_EN_CAMINO }
+    public enum Accion { CREAR, CAMBIAR_ESTADO, ASIGNAR_RESPONSABLE, PROPONER_VISITA, RESPONDER_VISITA, AVISAR_EN_CAMINO,
+        CONFIRMAR_VISITA, AGREGAR_CONTACTO, QUITAR_CONTACTO }
 }

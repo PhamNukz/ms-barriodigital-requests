@@ -1,5 +1,6 @@
 package cl.duoc.barriodigital.requests.amqp;
 
+import cl.duoc.barriodigital.requests.domain.Contacto;
 import cl.duoc.barriodigital.requests.domain.Tramite;
 import cl.duoc.barriodigital.requests.domain.Visita;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -7,7 +8,9 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -40,21 +43,32 @@ public class NotificationPublisher {
                 datosCorreo(t, tipoNotificacion, motivo));
     }
 
-    /** Lo que notify necesita para escribir el correo sin volver a consultar a requests. */
+    /** Correos que hablan de la visita: solo estos la llevan, con su codigo. */
+    static final Set<String> CORREOS_DE_VISITA =
+            Set.of("VISITA_PROPUESTA", "VISITA_AGENDADA", "VISITA_CONFIRMADA", "EN_CAMINO");
+
+    /**
+     * Lo que notify necesita para escribir el correo sin volver a consultar a requests.
+     * La visita va solo en los correos de visita: un RECHAZADO o RESUELTO que la mencione
+     * confunde (el vecino creeria que la visita sigue en pie).
+     */
     static Map<String, Object> datosCorreo(Tramite t, String tipoNotificacion, String motivo) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("tramiteId", t.getId());
         data.put("tipoNotificacion", tipoNotificacion);
         data.put("destinatario", t.getVecinoUsername());
+        List<String> cc = t.getContactos().stream().map(Contacto::getCorreo).toList();
+        if (!cc.isEmpty()) data.put("cc", cc);
         data.put("direccion", t.getDireccion() == null ? "" : t.getDireccion());
         Visita v = t.getVisita();
-        if (v != null) {
+        if (v != null && CORREOS_DE_VISITA.contains(tipoNotificacion)) {
             Map<String, Object> visita = new LinkedHashMap<>();
             visita.put("fecha", v.getFecha().toString());
             visita.put("franja", v.getFranja().name());
             visita.put("cuadrilla", v.getCuadrilla());
             visita.put("nota", v.getNota());
             visita.put("estado", v.getEstado().name());
+            visita.put("codigo", v.getCodigo());
             data.put("visita", visita);
         }
         if (motivo != null && !motivo.isBlank()) data.put("motivo", motivo);
@@ -80,10 +94,13 @@ public class NotificationPublisher {
     }
 
     /** Difunde por cmd.topic que se agendo la visita en terreno (cae en crew.#). */
-    public void difundirVisitaAgendada(Long tramiteId, String direccion) {
-        publicar(props.exchanges().topic(), props.routingKeys().crewTicket(), props.routingKeys().crewVisitaAgendada(), Map.of(
-                "tramiteId", tramiteId,
-                "direccion", direccion == null ? "" : direccion));
+    public void difundirVisitaAgendada(Tramite t) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("tramiteId", t.getId());
+        data.put("direccion", t.getDireccion() == null ? "" : t.getDireccion());
+        // El vecino le pide el codigo a la cuadrilla en la puerta: asi sabe que es la municipalidad.
+        if (t.getVisita() != null) data.put("codigo", t.getVisita().getCodigo());
+        publicar(props.exchanges().topic(), props.routingKeys().crewTicket(), props.routingKeys().crewVisitaAgendada(), data);
     }
 
     private void publicar(String exchange, String tipo, String routingKey, Map<String, Object> data) {

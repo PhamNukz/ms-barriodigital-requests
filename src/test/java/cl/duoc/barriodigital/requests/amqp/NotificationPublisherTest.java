@@ -9,6 +9,8 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import java.lang.reflect.Field;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -60,12 +62,25 @@ class NotificationPublisherTest {
     }
 
     @Test
-    void visita_agendada_se_difunde_por_topic_con_key_jerarquica() {
-        publisher.difundirVisitaAgendada(8L, "Calle 1");
+    void visita_agendada_se_difunde_por_topic_con_key_jerarquica_y_el_codigo() {
+        Tramite t = tramite(8L);
+        t.cambiarEstado(EstadoTramite.ADMITIDO, "func1");
+        t.proponerVisita(LocalDate.of(2030, 1, 15), Visita.Franja.TARDE, "Cuadrilla Norte", null, LocalDateTime.of(2030, 1, 1, 8, 0));
+
+        publisher.difundirVisitaAgendada(t);
 
         CommandEnvelope env = enviadoA("cmd.topic", "crew.visita.agendada");
         assertEquals("crew.ticket", env.type());
         assertEquals("Calle 1", env.data().get("direccion"));
+        assertEquals(t.getVisita().getCodigo(), env.data().get("codigo"));
+    }
+
+    /** Sin visita (EN_TERRENO directo) el ticket sale igual, sin codigo. */
+    @Test
+    void ticket_sin_visita_no_lleva_codigo() {
+        publisher.difundirVisitaAgendada(tramite(11L));
+
+        assertFalse(enviadoA("cmd.topic", "crew.visita.agendada").data().containsKey("codigo"));
     }
 
     @Test
@@ -81,7 +96,8 @@ class NotificationPublisherTest {
     void el_correo_lleva_destinatario_direccion_visita_y_motivo() {
         Tramite t = tramite(10L);
         t.cambiarEstado(EstadoTramite.ADMITIDO, "func1");
-        t.proponerVisita(LocalDate.of(2030, 1, 15), Visita.Franja.TARDE, "Cuadrilla Norte", null, LocalDate.of(2030, 1, 1));
+        t.proponerVisita(LocalDate.of(2030, 1, 15), Visita.Franja.TARDE, "Cuadrilla Norte", null, LocalDateTime.of(2030, 1, 1, 8, 0));
+        t.agregarContacto("Hija", "Hija@Correo.cl");
 
         publisher.notificarEmail(t, "VISITA_PROPUESTA", null);
         Map<String, Object> data = enviadoA("cmd.direct", "email.send").data();
@@ -91,10 +107,23 @@ class NotificationPublisherTest {
         assertEquals("2030-01-15", visita.get("fecha"));
         assertEquals("TARDE", visita.get("franja"));
         assertEquals("PROPUESTA", visita.get("estado"));
+        assertEquals(t.getVisita().getCodigo(), visita.get("codigo"));
+        assertEquals(List.of("hija@correo.cl"), data.get("cc"));
         assertFalse(data.containsKey("motivo"));
 
+        // Un rechazo no menciona la visita (el vecino creeria que sigue en pie) ni su codigo.
         clearInvocations(rabbit);
         publisher.notificarEmail(t, "RECHAZADO", "Fuera de la comuna");
-        assertEquals("Fuera de la comuna", enviadoA("cmd.direct", "email.send").data().get("motivo"));
+        Map<String, Object> rechazo = enviadoA("cmd.direct", "email.send").data();
+        assertEquals("Fuera de la comuna", rechazo.get("motivo"));
+        assertFalse(rechazo.containsKey("visita"));
+        assertEquals(List.of("hija@correo.cl"), rechazo.get("cc"));
+    }
+
+    @Test
+    void sin_contactos_no_va_cc() {
+        publisher.notificarEmail(tramite(12L), "ADMITIDO", null);
+
+        assertFalse(enviadoA("cmd.direct", "email.send").data().containsKey("cc"));
     }
 }
