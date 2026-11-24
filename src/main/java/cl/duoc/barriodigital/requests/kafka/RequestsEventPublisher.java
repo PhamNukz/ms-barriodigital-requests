@@ -58,16 +58,21 @@ public class RequestsEventPublisher {
         // particion y llegan en orden a audit/report.
         enviar(topicoEventos, String.valueOf(tramite.getId()), evento, evento.eventId(), tramite.getId());
 
-        var entrada = new AuditEntry(
-                UUID.randomUUID().toString(),
-                evento.timestamp(),
-                usuario,
+        auditar(tramite, evento.timestamp(), usuario,
                 creacion ? AuditEntry.Accion.CREAR : AuditEntry.Accion.CAMBIAR_ESTADO,
-                tramite.getId(),
-                tramite.getVecinoUsername(),
                 creacion ? "Ingresado en " + estadoNuevo : estadoAnterior + " -> " + estadoNuevo,
-                nota,
-                origen);
+                nota);
+    }
+
+    /** Accion de una persona que no cambia el estado (responsable, visita): solo va a audit.timeline. */
+    public void auditar(Tramite tramite, String usuario, AuditEntry.Accion accion, String detalle, String nota) {
+        auditar(tramite, Instant.now(), usuario, accion, detalle, nota);
+    }
+
+    private void auditar(Tramite tramite, Instant cuando, String usuario, AuditEntry.Accion accion,
+                         String detalle, String nota) {
+        var entrada = new AuditEntry(UUID.randomUUID().toString(), cuando, usuario, accion,
+                tramite.getId(), tramite.getVecinoUsername(), detalle, nota, origen);
         // key = eventId, no tramiteId: audit.timeline es compact, y la compactacion deja solo el
         // ultimo registro de cada key. Con tramiteId se perderia la historia de cada tramite.
         enviar(topicoAuditoria, entrada.eventId(), entrada, entrada.eventId(), tramite.getId());
