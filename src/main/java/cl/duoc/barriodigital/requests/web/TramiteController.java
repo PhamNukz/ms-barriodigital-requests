@@ -213,8 +213,11 @@ public class TramiteController {
     }
 
     private Lector lector(Authentication auth, Jwt jwt) {
-        Rol rol = tieneRol(auth, "Admin") || tieneRol(auth, "Auditor") ? Rol.SUPERVISOR
+        // ponytail: un rol por persona, el mas amplio; un Funcionario que ademas es Auditor lista como
+        // Funcionario y no ve la papelera. Si aparece ese caso, separar "ve la papelera" del rol.
+        Rol rol = tieneRol(auth, "Admin") ? Rol.ADMIN
                 : tieneRol(auth, "Funcionario") ? Rol.FUNCIONARIO
+                : tieneRol(auth, "Auditor") ? Rol.AUDITOR
                 : Rol.VECINO;
         return new Lector(jwt.getClaimAsString("preferred_username"), rol);
     }

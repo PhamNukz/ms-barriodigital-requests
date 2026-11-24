@@ -336,6 +336,29 @@ class AdminVisibilidadApiTest {
         assertFalse(idsListados(FUN, "").contains((int) borrado));
     }
 
+    /**
+     * Correccion de 6.2: el Auditor no recibe los tramites de todos en /requests (los veria con la
+     * vista de vecino). Solo la papelera, y solo abre los eliminados.
+     */
+    @Test
+    void el_auditor_sin_papelera_no_trae_tramites_ajenos_y_solo_abre_los_eliminados() throws Exception {
+        long ajeno = crear();
+
+        String lista = mvc.perform(get("/requests").with(AUD)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        List<String> duenos = JsonPath.read(lista, "$[*].vecinoUsername");
+        assertTrue(duenos.stream().allMatch(AUDITOR::equalsIgnoreCase), lista);
+        mvc.perform(get("/requests/" + ajeno).with(AUD)).andExpect(status().isForbidden());
+        mvc.perform(get("/requests/" + ajeno + "/seguimiento").with(AUD)).andExpect(status().isForbidden());
+
+        papelera(ajeno, "Limpieza").andExpect(status().isOk());
+        mvc.perform(get("/requests/" + ajeno).with(AUD)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.eliminadoPor").value(ADMIN));
+        mvc.perform(get("/requests/" + ajeno + "/seguimiento").with(AUD)).andExpect(status().isOk());
+        assertTrue(idsListados(AUD, "?papelera=true").contains((int) ajeno));
+        assertFalse(idsListados(AUD, "").contains((int) ajeno));
+    }
+
     @Test
     void enviar_a_la_papelera_no_devuelve_el_cupo_del_dia() throws Exception {
         when(catalogClient.listarTipos(any()))

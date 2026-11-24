@@ -63,27 +63,30 @@ public class TramiteService {
         this.zona = ZoneId.of(zonaHoraria);
     }
 
-    /** Rol de quien lee, segun la seccion 6.2 del contrato. SUPERVISOR = Admin o Auditor. */
-    public enum Rol { VECINO, FUNCIONARIO, SUPERVISOR }
+    /** Rol de quien lee, segun la seccion 6.2 del contrato. */
+    public enum Rol { VECINO, AUDITOR, FUNCIONARIO, ADMIN }
 
     public record Lector(String usuario, Rol rol) {
         public boolean esVecino() { return rol == Rol.VECINO; }
     }
 
     /**
-     * Vecino: los suyos, visibles, no eliminados y sin RECHAZADO si la regla lo dice. Funcionario: todos
-     * los no eliminados (tambien los ocultos al vecino). Admin y Auditor: igual, o solo la papelera.
+     * Vecino: los suyos, visibles, no eliminados y sin RECHAZADO si la regla lo dice. Funcionario y Admin:
+     * todos los no eliminados (tambien los ocultos al vecino). Con papelera=true, Admin y Auditor: solo
+     * los eliminados. El Auditor sin papelera lista como un vecino (los suyos): si recibiera todos, en
+     * /requests veria los tramites de todos los vecinos con la vista de vecino.
      */
     @Transactional(readOnly = true)
     public List<Tramite> listar(Lector lector, EstadoTramite estado, Instant desde, Instant hasta, boolean papelera) {
-        if (papelera && lector.rol() != Rol.SUPERVISOR) {
+        if (papelera && lector.rol() != Rol.ADMIN && lector.rol() != Rol.AUDITOR) {
             throw new AccessDeniedException("Solo Admin y Auditor ven la papelera");
         }
+        boolean losSuyos = !papelera && (lector.rol() == Rol.VECINO || lector.rol() == Rol.AUDITOR);
         ReglaVisibilidad reglas = reglas();
         // findAll() sin Sort devolvia las filas en el orden que quisiera la base: a
         // Admin/Funcionario la tabla le llegaba desordenada. El vecino ya venia
         // ordenado por su propia query; ahora ambos caminos coinciden.
-        List<Tramite> base = lector.esVecino()
+        List<Tramite> base = losSuyos
                 ? repo.findAllByVecinoUsernameOrderByFechaIngresoDesc(lector.usuario())
                 : repo.findAll(Sort.by(Sort.Direction.DESC, "fechaIngreso"));
 
@@ -91,7 +94,7 @@ public class TramiteService {
         // JPA Specifications en vez de listas completas.
         return base.stream()
                 .filter(t -> t.eliminado() == papelera)
-                .filter(t -> !lector.esVecino() || visibleParaVecino(t, reglas))
+                .filter(t -> !losSuyos || visibleParaVecino(t, reglas))
                 .filter(t -> estado == null || t.getEstado() == estado)
                 .filter(t -> desde == null || !t.getFechaIngreso().isBefore(desde))
                 .filter(t -> hasta == null || !t.getFechaIngreso().isAfter(hasta))
@@ -106,18 +109,22 @@ public class TramiteService {
     public Tramite obtenerPara(Long id, Lector lector) {
         Tramite t = obtener(id);
         switch (lector.rol()) {
-            case VECINO -> {
-                if (!t.getVecinoUsername().equalsIgnoreCase(lector.usuario())) {
-                    throw new AccessDeniedException("No puedes ver el tramite de otro vecino");
-                }
-                if (!visibleParaVecino(t, reglas())) throw noExiste(id);
+            case VECINO -> comoVecino(t, lector, "No puedes ver el tramite de otro vecino");
+            // El Auditor revisa la papelera: abre los eliminados; lo demas, como cualquier vecino.
+            case AUDITOR -> {
+                if (!t.eliminado()) comoVecino(t, lector, "El Auditor solo abre los tramites de la papelera");
             }
             case FUNCIONARIO -> {
                 if (t.eliminado()) throw noExiste(id);
             }
-            case SUPERVISOR -> { /* ve todo, tambien la papelera */ }
+            case ADMIN -> { /* ve todo, tambien la papelera */ }
         }
         return t;
+    }
+
+    private void comoVecino(Tramite t, Lector lector, String ajeno) {
+        if (!t.getVecinoUsername().equalsIgnoreCase(lector.usuario())) throw new AccessDeniedException(ajeno);
+        if (!visibleParaVecino(t, reglas())) throw noExiste(t.getId());
     }
 
     private static boolean visibleParaVecino(Tramite t, ReglaVisibilidad reglas) {
