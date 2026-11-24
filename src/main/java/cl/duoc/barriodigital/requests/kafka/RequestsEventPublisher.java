@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -72,10 +73,25 @@ public class RequestsEventPublisher {
     private void auditar(Tramite tramite, Instant cuando, String usuario, AuditEntry.Accion accion,
                          String detalle, String nota) {
         var entrada = new AuditEntry(UUID.randomUUID().toString(), cuando, usuario, accion,
-                tramite.getId(), tramite.getVecinoUsername(), detalle, nota, origen);
+                tramite.getId(), tramite.getVecinoUsername(),
+                recortar(detalle, DETALLE_MAX_BYTES), recortar(nota, NOTA_MAX_BYTES), origen);
         // key = eventId, no tramiteId: audit.timeline es compact, y la compactacion deja solo el
         // ultimo registro de cada key. Con tramiteId se perderia la historia de cada tramite.
         enviar(topicoAuditoria, entrada.eventId(), entrada, entrada.eventId(), tramite.getId());
+    }
+
+    // Columnas de accion_auditoria en ms-barriodigital-audit: VARCHAR2(200) y VARCHAR2(500), en BYTES.
+    // "Contacto <nombre de 100> <correo de 150>" o un responsable con dos correos largos pasaban
+    // de 200: el INSERT fallaba en audit y la entrada terminaba en la DLT, sin auditar.
+    static final int DETALLE_MAX_BYTES = 200;
+    static final int NOTA_MAX_BYTES = 500;
+
+    /** Recorta a maxBytes en UTF-8 (una n con tilde son 2 bytes), terminando en "...". */
+    static String recortar(String texto, int maxBytes) {
+        if (texto == null || texto.getBytes(StandardCharsets.UTF_8).length <= maxBytes) return texto;
+        int n = texto.length();
+        while (n > 0 && texto.substring(0, n).getBytes(StandardCharsets.UTF_8).length > maxBytes - 3) n--;
+        return texto.substring(0, n) + "...";
     }
 
     /** send() es asincrono: sin este callback, una falla del broker despues de enviar no dejaba rastro. */

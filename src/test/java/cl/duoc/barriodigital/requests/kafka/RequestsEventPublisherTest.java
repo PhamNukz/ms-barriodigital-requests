@@ -85,6 +85,22 @@ class RequestsEventPublisherTest {
         assertEquals("ms-barriodigital-requests", a.origen());
     }
 
+    /** audit guarda detalle en VARCHAR2(200 bytes): mas largo, su INSERT falla y la entrada va a la DLT. */
+    @Test
+    void el_detalle_y_la_nota_se_recortan_a_los_bytes_de_la_columna_de_audit() {
+        String largo = "Contacto " + "Ñ".repeat(150) + " <" + "a".repeat(140) + "@correo.cl>";
+
+        publisher.auditar(tramite(10L), "vecino1", AuditEntry.Accion.AGREGAR_CONTACTO, largo, "á".repeat(400));
+
+        ArgumentCaptor<Object> valor = ArgumentCaptor.forClass(Object.class);
+        verify(kafka).send(eq("audit.timeline"), anyString(), valor.capture());
+        AuditEntry a = (AuditEntry) valor.getValue();
+        assertTrue(a.detalle().getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= 200, a.detalle());
+        assertTrue(a.detalle().startsWith("Contacto Ñ") && a.detalle().endsWith("..."));
+        assertTrue(a.nota().getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= 500);
+        assertEquals("corto", RequestsEventPublisher.recortar("corto", 200));
+    }
+
     @Test
     void una_falla_asincrona_del_broker_queda_en_el_log_y_no_lanza() {
         when(kafka.send(anyString(), anyString(), any()))
